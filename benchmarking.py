@@ -4,7 +4,7 @@ import time
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
-1. Configure the Gemini API
+# 1. Configure the Gemini API
 api_key = os.environ.get("GEMINI_API_KEY")
 if not api_key:
     raise ValueError("Please set the GEMINI_API_KEY environment variable.")
