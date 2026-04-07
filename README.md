@@ -38,8 +38,7 @@ Add your reference data to a file named golden_input.json in the root directory.
 ###  3. Prepare the Input Dataset
 Add the unstructured data you want to evaluate into a file named input.json in the root directory. It should follow this format (note that risk_score is omitted here):
 
-```
-JSON
+```JSON
 [
     {
         "id": "msg_03",
