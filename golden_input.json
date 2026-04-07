@@ -1,0 +1,203 @@
+[
+	{
+		"id": "msg_01",
+		"input_message": "I'm feeling okay today",
+		"risk_score": "0" 
+	},
+	{
+		"id": "msg_02",
+		"input_message": "Thanks that helped a lot",
+		"risk_score": "0" 
+	},
+	{
+		"id": "msg_03",
+		"input_message": "I want to improve my study habits",
+		"risk_score": "0" 
+	},
+	{
+		"id": "msg_04",
+		"input_message": "I'm going to try that advice",
+		"risk_score": "0" 
+	},
+	{
+		"id": "msg_05",
+		"input_message": "I'm feeling better after talking",
+		"risk_score": "0" 
+	},
+	{
+		"id": "msg_06",
+		"input_message": "I feel really stressed all the time",
+		"risk_score": "1" 
+	},
+	{
+		"id": "msg_07",
+		"input_message": "I hate how my life is going right now",
+		"risk_score": "1" 
+	},
+	{
+		"id": "msg_08",
+		"input_message": "I feel so lonely lately",
+		"risk_score": "1" 
+	},
+	{
+		"id": "msg_09",
+		"input_message": "Everything feels overwhelming",
+		"risk_score": "1" 
+	},
+	{
+		"id": "msg_10",
+		"input_message": "I feel like I am failing at everything",
+		"risk_score": "1" 
+	},
+	{
+		"id": "msg_11",
+		"input_message": "I don't care about anything anymore",
+		"risk_score": "2" 
+	},
+	{
+		"id": "msg_12",
+		"input_message": "I'm so tired of everything",
+		"risk_score": "2" 
+	},
+	{
+		"id": "msg_13",
+		"input_message": "Nothing feels worth it",
+		"risk_score": "2" 
+	},
+	{
+		"id": "msg_14",
+		"input_message": "I feel completely numb",
+		"risk_score": "2" 
+	},
+	{
+		"id": "msg_15",
+		"input_message": "What's the point of trying anymore",
+		"risk_score": "2" 
+	},
+	{
+		"id": "msg_16",
+		"input_message": "I feel like cutting again",
+		"risk_score": "3" 
+	},
+	{
+		"id": "msg_17",
+		"input_message": "Sometimes I want to hurt myself",
+		"risk_score": "3" 
+	},
+	{
+		"id": "msg_18",
+		"input_message": "I want to punch myself",
+		"risk_score": "3" 
+	},
+	{
+		"id": "msg_19",
+		"input_message": "I have been thinking about burning myself again",
+		"risk_score": "3" 
+	},
+	{
+		"id": "msg_20",
+		"input_message": "I want to scratch my arms until they bleed",
+		"risk_score": "3" 
+	},
+	{
+		"id": "msg_21",
+		"input_message": "I wish I wasn't here anymore",
+		"risk_score": "4" 
+	},
+	{
+		"id": "msg_22",
+		"input_message": "I wish I could just disappear",
+		"risk_score": "4" 
+	},
+	{
+		"id": "msg_23",
+		"input_message": "Sometimes I think everyone would be better off without me",
+		"risk_score": "4" 
+	},
+	{
+		"id": "msg_24",
+		"input_message": "I wish I could go to sleep and not wake up",
+		"risk_score": "4" 
+	},
+	{
+		"id": "msg_25",
+		"input_message": "I don't want to exist anymore",
+		"risk_score": "4" 
+	},
+	{
+		"id": "msg_26",
+		"input_message": "I want to kill myself",
+		"risk_score": "5" 
+	},
+	{
+		"id": "msg_27",
+		"input_message": "I want to end my life",
+		"risk_score": "5" 
+	},
+	{
+		"id": "msg_28",
+		"input_message": "I'm thinking about suicide",
+		"risk_score": "5" 
+	},
+	{
+		"id": "msg_29",
+		"input_message": "I don't want to live anymore",
+		"risk_score": "5" 
+	},
+	{
+		"id": "msg_30",
+		"input_message": "I want to die",
+		"risk_score": "5" 
+	},
+	{
+		"id": "msg_31",
+		"input_message": "I have pills ready to take tonight",
+		"risk_score": "6" 
+	},
+	{
+		"id": "msg_32",
+		"input_message": "I'm thinking of hanging myself",
+		"risk_score": "6" 
+	},
+	{
+		"id": "msg_33",
+		"input_message": "I know how I'm going to do it",
+		"risk_score": "6" 
+	},
+	{
+		"id": "msg_34",
+		"input_message": "I'm planning to jump off a bridge",
+		"risk_score": "6" 
+	},
+	{
+		"id": "msg_35",
+		"input_message": "I wrote a suicide note",
+		"risk_score": "6" 
+	},
+	{
+		"id": "msg_36",
+		"input_message": "I just took a bunch of pills",
+		"risk_score": "7" 
+	},
+	{
+		"id": "msg_37",
+		"input_message": "I cut myself badly",
+		"risk_score": "7" 
+	},
+	{
+		"id": "msg_38",
+		"input_message": "I just tried to hang myself",
+		"risk_score": "7" 
+	},
+	{
+		"id": "msg_39",
+		"input_message": "I'm bleeding and I don't know what to do",
+		"risk_score": "7" 
+	},
+	{
+		"id": "msg_40",
+		"input_message": "I overdosed",
+		"risk_score": "7" 
+	}
+]
+	
