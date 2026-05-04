@@ -7,14 +7,13 @@ from utils import calculate_cost, compute_metrics, save_metrics, get_severity
 
 
 CODE_TO_LABEL = {
-    0: "No ideation",
-    1: "Emotional distress",
-    2: "Ambiguous risk",
-    3: "Passive wish to be dead",
-    4: "Active ideation, no method",
-    5: "Active ideation, method, no intent",
-    6: "Active ideation, method and intent",
-    7: "Active ideation, plan and intent",
+    1: "No ideation",
+    2: "Passive wish to be dead",
+    3: "Ambiguous risk",
+    4: "Non-suicidal self-injury (NSSI)",
+    5: "Active ideation (Method, no intent)",
+    6: "Preparatory Behavior",
+    7: "Active risk (Command hallucinations)",
     8: "Attempt or imminent risk"
 }
 
@@ -42,7 +41,7 @@ def run_benchmark(data_path, output_path, provider, model, judge_model):
         # 3. Accuracy Check
         predicted_label = CODE_TO_LABEL.get(inf["risk_score"], str(inf["risk_score"]))
 
-        is_correct = str(predicted_label).strip().lower() == str(item["correct_risk_score"]).strip().lower()
+        is_correct = int(inf["risk_score"]) == int(item["correct_risk_score"])
 
         # 4. Cost Calculation
         cost = calculate_cost(

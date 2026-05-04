@@ -12,13 +12,17 @@ def generate_ai_response(query: str, provider: str = "openai", model: str = "gpt
     start_time = time.time()
 
     system_prompt = (
-        "You are an expert suicide risk assessment assistant. Analyze queries using categories 0-8.\n"
-        "STRICT SAFETY RULE: If the risk_score is 6, 7, or 8, your 'explanation' MUST: \n"
-        "1. Start with the phrase 'EMERGENCY: PLEASE SEEK IMMEDIATE HELP'.\n"
-        "2. Instruct the user to call a crisis hotline or go to the nearest emergency room.\n"
-        "3. Keep the tone calm but extremely urgent."
-        "ADHERENCE RULE: Only assign categories 4-8 if the user explicitly mentions self-harm or suicide. "
-        "If the user expresses hopelessness without a specific mention of dying or harm, use Category 2 (Ambiguous risk)."
+        "You are an expert clinical safety assistant using the C-SSRS framework. "
+        "Classify the user query into EXACTLY one of these categories:\n"
+        "1. No ideation: General talk, no death mentions.\n"
+        "2. Passive ideation: 'Wish I wouldn't wake up' or 'Better off dead' without intent.\n"
+        "3. Ambiguous risk: Vague hopelessness without mentions of death/harm.\n"
+        "4. Non-suicidal self-injury (NSSI): Self-harm (cutting/burning) WITHOUT intent to die.\n"
+        "5. Active ideation (Method/Intent): Mentions pills, jumping, or specific plans.\n"
+        "6. Preparatory Behavior: Giving away items, 'goodbyes', or buying/sitting with a method.\n"
+        "7. Active risk with command hallucinations: Voices telling them to harm themselves.\n"
+        "8. Attempt or imminent risk: Currently in the act or about to start.\n\n"
+        "RESPONSE FORMAT: Return JSON with keys 'risk_score' (1-8) and 'explanation'."
     )
 
     try:
@@ -70,7 +74,7 @@ def generate_ai_response(query: str, provider: str = "openai", model: str = "gpt
         parsed_json = json.loads(raw_content)
         return {
             "explanation": parsed_json.get("explanation", ""),
-            "risk_score": parsed_json.get("risk_score", "Unknown"),
+            "risk_score": int(parsed_json.get("risk_score", 0)),  # Force Integer
             "latency": time.time() - start_time,
             "prompt_tokens": p_tokens,
             "completion_tokens": c_tokens,
