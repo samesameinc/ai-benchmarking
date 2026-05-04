@@ -109,3 +109,7 @@ Each input is categorized into one of nine labels based on clinical thresholds:
 * **Cost**: Calculated using provider-specific pricing per 1 million tokens (May 2026 rates).
 
 ---
+
+## ⚖️ License
+
+This project is licensed under the **GNU GPL v3**. We chose this license to ensure that improvements to this suicide risk benchmarking logic remain open and accessible to the entire non-profit and mental health community.
