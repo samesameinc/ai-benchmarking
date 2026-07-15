@@ -1,6 +1,27 @@
-.specstory
-.env
-__pycache__
+# IDEs and Editors
 .idea/*
+.specstory
+
+# Environment Variables
+.env
+
+# Virtual Environments
 .venv/
+
+# OS Generated Files
 .DS_Store
+
+# Python Cache
+__pycache__/
+*.pyc
+
+# Local Test Outputs
+outputs/
+
+# Python Packaging / Build Artifacts
+dist/
+build/
+*.egg-info/
+
+*.csv
+predicted_json_results/

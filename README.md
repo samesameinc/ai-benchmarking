@@ -12,7 +12,7 @@ This repository provides a standardized framework for benchmarking Large Languag
    ```bash
    uv sync
    ```
-3. **API Keys:** Create a private .env file in the scripts/ directory. Do not edit .env.example with real keys.
+3. **API Keys:** Create a private .env file in the ai_benchmarking/ directory. Do not edit .env.example with real keys.
     
     `OPENAI_API_KEY=your_key`
     `GEMINI_API_KEY=your_key_here`
@@ -24,17 +24,18 @@ You can evaluate different models by changing the --provider and --model flags. 
 
     The Gemini 3 series is highly efficient for both inference and judging.
     
-    - Inference Model: `gemini-3.1-flash-lite-preview` (Fastest/Cheapest) or `gemini-3.1-pro-preview` (High Reasoning)
+    - Inference Model: `gemini-3.1-flash-lite` (Fastest/Cheapest) or `gemini-3.1-pro-preview` (High Reasoning)
     
-    - Judge Model: `gemini-3-flash-preview`
+    - Judge Model: `gemini-3.5-flash`
 
     ```bash
-    uv run python scripts/eval.py \
+    uv run python -m ai_benchmarking.eval \
       --provider gemini \
-      --model gemini-3.1-flash-lite-preview \
+      --model gemini-3.1-flash-lite \
       --data data/input.json \
       --output outputs/gemini_results.json \
-      --judge-model gemini-3-flash-preview
+      --kb data/knowledge_base.json \
+      --judge-model gemini-3.5-flash
     ```
 
 2. **Anthropic Claude**
@@ -44,12 +45,13 @@ You can evaluate different models by changing the --provider and --model flags. 
    - Judge Model: `claude-4-sonnet-20260217`
 
     ```bash
-    uv run python scripts/eval.py \
+    uv run python -m ai_benchmarking.eval \
       --provider anthropic \
       --model claude-4-sonnet-20260217 \
       --data data/input.json \
       --output outputs/claude_results.json \
-      --judge-model claude-4-sonnet-20260217
+      --kb data/knowledge_base.json \
+      --judge-model gemini-3-flash-lite
     ```
 
 3. **OpenAI**
@@ -59,20 +61,21 @@ You can evaluate different models by changing the --provider and --model flags. 
    - Judge Model: `gpt-5.1-mini`
 
     ```bash
-    uv run python scripts/eval.py \
+    uv run python -m ai_benchmarking.eval \
       --provider openai \
       --model o5-mini \
       --data data/input.json \
-      --output outputs/openai_results.json \
-      --judge-model gpt-5.1-mini
+      --output outputs/openai_results.json \ 
+      --kb data/knowledge_base.json \
+      --judge-model gemini-3-flash-lite
     ```
 
 ### 🛠 Model Selection Guide (May 2026)
 
-* **Lowest Cost:** `gemini-3.1-flash-lite-preview` (Provider: Google)
+* **Lowest Cost:** `gemini-3.1-flash-lite` (Provider: Google)
 * **High Precision:** `claude-4-sonnet-20260217` (Provider: Anthropic)
 * **Deep Reasoning:** `gpt-5.2-chat-latest` (Provider: OpenAI)
-* **Best Judge:** `gemini-3-flash-preview` (Provider: Google)
+* **Best Judge:** `gemini-3-flash` (Provider: Google)
 
 ---
 ## 2. The Risk Framework (C-SSRS)
@@ -94,10 +97,10 @@ Each input is categorized into one of nine labels based on clinical thresholds:
 
 ## 3. Code Architecture
 
-* **`scripts/inference.py`**: The "Router." Handles API calls to OpenAI, Google (via modern `google-genai` SDK), and Anthropic. It enforces a strict JSON output format.
-* **`scripts/eval.py`**: The "Engine." Iterates through the dataset, triggers inference, calls the judge, and maps numeric scores to clinical labels for accuracy checking.
-* **`scripts/judges.py`**: The "Auditor." An LLM-as-a-Judge that reviews the AI's response for **Safety** (escalation for codes 6-8) and **Communication Quality**.
-* **`scripts/utils.py`**: The "Accountant." Calculates real-time costs based on 2026 token pricing and computes aggregate accuracy, latency, and cost statistics.
+* **`ai_benchmarking/inference.py`**: The "Router." Handles API calls to OpenAI, Google (via modern `google-genai` SDK), and Anthropic. It enforces a strict JSON output format.
+* **`ai_benchmarking/eval.py`**: The "Engine." Iterates through the dataset, triggers inference, calls the judge, and maps numeric scores to clinical labels for accuracy checking.
+* **`ai_benchmarking/judges.py`**: The "Auditor." An LLM-as-a-Judge that reviews the AI's response for **Safety** (escalation for codes 6-8) and **Communication Quality**.
+* **`ai_benchmarking/utils.py`**: The "Accountant." Calculates real-time costs based on 2026 token pricing and computes aggregate accuracy, latency, and cost statistics.
 
 ---
 
