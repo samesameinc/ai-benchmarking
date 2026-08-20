@@ -72,6 +72,26 @@ You can evaluate different models by changing the --provider and --model flags. 
       --judge-model gemini-3.1-flash-lite
     ```
 
+You may also evaluate a --model against a --data dataset without using --kb to augment the base
+prompt, and without using --judge-model to skip evaluating safety and communication_quality
+dimensions.  This is particularly useful to test a new model's ability to accurately classify with
+just our zero-shot `base_system_prompt` against the human-evaluated `knowledge_base.json`, aka our
+"Gold Master" dataset, by running:
+
+    ```bash
+    MODEL=gemini-3.1-flash-lite
+    uv run python -m ai_benchmarking.eval \
+      --provider gemini \
+      --model $MODEL \
+      --data data/knowledge_base.json \
+      --output outputs/kb_baseline.${MODEL}.json
+    ```
+
+Normally, the input --data is assumed to be predicted scores from a lighterweight setup (such as
+output by `process_batches.py`), that are to be AI-evaluated using our kb-augmented model. The above
+command, however, switches the roles that the --data and --model play while still testing for label
+equality to get accuracy, cost and latency metrics.
+
 ### 🛠 Model Selection Guide (May 2026)
 
 * **Lowest Cost:** `gemini-3.1-flash-lite` (Provider: Google)
