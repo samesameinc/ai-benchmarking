@@ -22,7 +22,7 @@ This repository provides a standardized framework for benchmarking Large Languag
 You can evaluate different models by changing the --provider and --model flags. Use a fast, low-cost model as the --judge-model to save on API costs.
 1. **Google Gemini** (Recommended)
 
-    The Gemini 3 series is highly efficient for both inference and judging.
+    The Gemini 3 series is highly efficient for both inference and judging. For model names, see https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#google-models
     
     - Inference Model: `gemini-3.1-flash-lite` (Fastest/Cheapest) or `gemini-3.1-pro-preview` (High Reasoning)
     
@@ -39,7 +39,8 @@ You can evaluate different models by changing the --provider and --model flags. 
     ```
 
 2. **Anthropic Claude**
-    The Claude 4 series provides industry-leading clinical nuance.
+    The Claude 4 series provides industry-leading clinical nuance. For model names, see https://platform.claude.com/docs/en/about-claude/models/overview
+
    - Inference Model: `claude-4-sonnet-20260217` or `claude-4-haiku-20251015`
     
    - Judge Model: `claude-4-sonnet-20260217`
@@ -51,13 +52,14 @@ You can evaluate different models by changing the --provider and --model flags. 
       --data data/input.json \
       --output outputs/claude_results.json \
       --kb data/knowledge_base.json \
-      --judge-model gemini-3-flash-lite
+      --judge-model gemini-3.1-flash-lite
     ```
 
 3. **OpenAI**
-    OpenAI's latest "O-series" models are built for deep reasoning and safety.
+    OpenAI's latest "O-series" models are built for deep reasoning and safety. For model names, see https://platform.openai.com/chat/edit.
+
    - Inference Model: `gpt-5.2-chat-latest` or `o5-mini`
-    
+
    - Judge Model: `gpt-5.1-mini`
 
     ```bash
@@ -67,7 +69,7 @@ You can evaluate different models by changing the --provider and --model flags. 
       --data data/input.json \
       --output outputs/openai_results.json \ 
       --kb data/knowledge_base.json \
-      --judge-model gemini-3-flash-lite
+      --judge-model gemini-3.1-flash-lite
     ```
 
 ### 🛠 Model Selection Guide (May 2026)

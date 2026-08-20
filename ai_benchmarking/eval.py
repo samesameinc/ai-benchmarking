@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm.asyncio import tqdm_asyncio
 from dotenv import load_dotenv
 
-from .inference import generate_ai_response_async
+from .inference import create_google_genai_client, generate_ai_response_async
 from .judges import judge_ground_truth_async
 from .utils import calculate_cost, compute_metrics, get_severity_metrics, save_metrics
 
@@ -192,12 +192,11 @@ async def run_benchmark_async(
     client = None  # Initialize an empty reference hook
 
     if provider == "gemini":
-        from google import genai
         from google.genai import types
 
         print("Initializing long-term Context Cache on Google servers (TTL: 24 Hours)...")
         # 3. Create the SINGLE master client handle right here
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        client = create_google_genai_client()
 
         cached_content = client.caches.create(
             model=model,
