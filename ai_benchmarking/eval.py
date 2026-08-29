@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm.asyncio import tqdm_asyncio
 from dotenv import load_dotenv
 
-from .inference import generate_ai_response_async
+from .inference import create_google_genai_client, generate_ai_response_async
 from .judges import judge_ground_truth_async
 from .utils import calculate_cost, compute_metrics, get_severity_metrics, save_metrics
 
@@ -147,11 +147,15 @@ async def run_benchmark_async(
     else:
         raise ValueError("Unsupported format. Please provide a .csv or .json dataset.")
 
-    if kb_path and os.path.exists(kb_path):
+    knowledge_base = []
+    if kb_path:
+        if not os.path.exists(kb_path):
+            raise FileNotFoundError(f"Knowledge base file not found: {kb_path}")
         with open(kb_path, "r", encoding="utf-8") as f:
-            knowledge_base = json.load(f)
-    else:
-        knowledge_base = []
+            raw_kb = f.read().strip()
+        # Guard against an empty file raising a decode error
+        if raw_kb:
+            knowledge_base = json.loads(raw_kb)
 
     print(
         f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries..."
@@ -192,22 +196,33 @@ async def run_benchmark_async(
     client = None  # Initialize an empty reference hook
 
     if provider == "gemini":
-        from google import genai
         from google.genai import types
+        from google.genai.errors import ClientError
 
-        print("Initializing long-term Context Cache on Google servers (TTL: 24 Hours)...")
         # 3. Create the SINGLE master client handle right here
-        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        client = create_google_genai_client()
 
-        cached_content = client.caches.create(
-            model=model,
-            config=types.CreateCachedContentConfig(
-                contents=[base_system_prompt],
-                ttl="86400s",
+        # Explicit caching requires >= 4096 tokens. No-KB evals (and small KBs)
+        # fall back to system_instruction in generate_ai_response_async.
+        try:
+            print("Initializing long-term Context Cache on Google servers (TTL: 24 Hours)...")
+            cached_content = client.caches.create(
+                model=model,
+                config=types.CreateCachedContentConfig(
+                    contents=[base_system_prompt],
+                    ttl="86400s",
+                )
             )
-        )
-        cache_name = cached_content.name
-        print(f"Context cached successfully! Handle reference identifier: {cache_name}")
+            cache_name = cached_content.name
+            print(f"Context cached successfully! Handle reference identifier: {cache_name}")
+        except ClientError as e:
+            if getattr(e, "code", None) != 400 or "minimum token count" not in str(e).lower():
+                raise
+            cache_name = None
+            print(
+                "Skipping Gemini explicit cache: prompt is below the 4096-token minimum. "
+                "Using system_instruction instead."
+            )
 
     elif provider == "openai":
         from openai import AsyncOpenAI
@@ -330,7 +345,12 @@ if __name__ == "__main__":
     parser.add_argument("--provider", type=str, required=True)
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--data", type=str, required=True)
-    parser.add_argument("--kb", type=str, required=True)
+    parser.add_argument(
+        "--kb",
+        type=str,
+        default=None,
+        help="Optional few-shot knowledge base JSON. Omit to evaluate the --data labels without the examples as context.",
+    )
     parser.add_argument("--output", type=str, required=False)
     parser.add_argument("--judge-model", type=str, default=None)
 

@@ -10,7 +10,6 @@ import pandas as pd
 from pydantic import BaseModel, Field
 
 # Provider SDKs
-from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from openai.lib._pydantic import to_strict_json_schema
@@ -18,12 +17,11 @@ from anthropic import AsyncAnthropic
 
 from tqdm import tqdm
 
-# 1. Initialize Global Clients and Envs once to utilize connection pooling
-os.environ["GEMINI_API_KEY"] = os.getenv("GEMINI_API_KEY", "")
-os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
-os.environ["ANTHROPIC_API_KEY"] = os.getenv("ANTHROPIC_API_KEY", "")
+from .inference import create_google_genai_client
 
-gemini_client = genai.Client()
+# 1. Initialize Global Clients and Envs once to utilize connection pooling
+
+gemini_client = create_google_genai_client()
 openai_client = AsyncOpenAI()
 anthropic_client = AsyncAnthropic()
 

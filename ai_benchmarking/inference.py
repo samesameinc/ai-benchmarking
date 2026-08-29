@@ -4,9 +4,33 @@ import time
 import asyncio
 import random
 from pydantic import BaseModel, Field
+from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from openai.lib._pydantic import to_strict_json_schema
+
+
+def create_google_genai_client():
+    """Create a google-genai Client using an API key or Application Default Credentials.
+
+    If GEMINI_API_KEY or GOOGLE_API_KEY is set, use the Gemini Developer API.
+    Otherwise omit the API key so the SDK can discover ADC (typically Vertex AI
+    via GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION).
+    """
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if api_key:
+        return genai.Client(api_key=api_key)
+
+    # Try using the more modern Application Default Credentials (ADC) for auth
+    kwargs = {}
+    project = os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION")
+    if project and location:
+        kwargs["enterprise"] = True
+        kwargs["project"] = project
+        kwargs["location"] = location
+    return genai.Client(**kwargs)
+
 
 # ---------------------------------------------------------------------------
 # STRUCTURED RESPONSE SCHEMA

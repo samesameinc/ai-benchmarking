@@ -22,7 +22,7 @@ This repository provides a standardized framework for benchmarking Large Languag
 You can evaluate different models by changing the --provider and --model flags. Use a fast, low-cost model as the --judge-model to save on API costs.
 1. **Google Gemini** (Recommended)
 
-    The Gemini 3 series is highly efficient for both inference and judging.
+    The Gemini 3 series is highly efficient for both inference and judging. For model names, see https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations#google-models
     
     - Inference Model: `gemini-3.1-flash-lite` (Fastest/Cheapest) or `gemini-3.1-pro-preview` (High Reasoning)
     
@@ -39,7 +39,8 @@ You can evaluate different models by changing the --provider and --model flags. 
     ```
 
 2. **Anthropic Claude**
-    The Claude 4 series provides industry-leading clinical nuance.
+    The Claude 4 series provides industry-leading clinical nuance. For model names, see https://platform.claude.com/docs/en/about-claude/models/overview
+
    - Inference Model: `claude-4-sonnet-20260217` or `claude-4-haiku-20251015`
     
    - Judge Model: `claude-4-sonnet-20260217`
@@ -51,13 +52,14 @@ You can evaluate different models by changing the --provider and --model flags. 
       --data data/input.json \
       --output outputs/claude_results.json \
       --kb data/knowledge_base.json \
-      --judge-model gemini-3-flash-lite
+      --judge-model gemini-3.1-flash-lite
     ```
 
 3. **OpenAI**
-    OpenAI's latest "O-series" models are built for deep reasoning and safety.
+    OpenAI's latest "O-series" models are built for deep reasoning and safety. For model names, see https://platform.openai.com/chat/edit.
+
    - Inference Model: `gpt-5.2-chat-latest` or `o5-mini`
-    
+
    - Judge Model: `gpt-5.1-mini`
 
     ```bash
@@ -67,8 +69,28 @@ You can evaluate different models by changing the --provider and --model flags. 
       --data data/input.json \
       --output outputs/openai_results.json \ 
       --kb data/knowledge_base.json \
-      --judge-model gemini-3-flash-lite
+      --judge-model gemini-3.1-flash-lite
     ```
+
+You may also evaluate a --model against a --data dataset without using --kb to augment the base
+prompt, and without using --judge-model to skip evaluating safety and communication_quality
+dimensions.  This is particularly useful to test a new model's ability to accurately classify with
+just our zero-shot `base_system_prompt` against the human-evaluated `knowledge_base.json`, aka our
+"Gold Master" dataset, by running:
+
+    ```bash
+    MODEL=gemini-3.1-flash-lite
+    uv run python -m ai_benchmarking.eval \
+      --provider gemini \
+      --model $MODEL \
+      --data data/knowledge_base.json \
+      --output outputs/kb_baseline.${MODEL}.json
+    ```
+
+Normally, the input --data is assumed to be predicted scores from a lighterweight setup (such as
+output by `process_batches.py`), that are to be AI-evaluated using our kb-augmented model. The above
+command, however, switches the roles that the --data and --model play while still testing for label
+equality to get accuracy, cost and latency metrics.
 
 ### 🛠 Model Selection Guide (May 2026)
 

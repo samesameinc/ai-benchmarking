@@ -3,9 +3,10 @@ import json
 import os
 from anthropic import AsyncAnthropic
 from dotenv import load_dotenv
-from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
+
+from .inference import create_google_genai_client
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ async def _call_judge_async(prompt, judge_model):
 
         # --- GEMINI JUDGE (ASYNC VIA .aio) ---
         elif "gemini" in judge_model:
-            client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+            client = create_google_genai_client()
             response = await client.aio.models.generate_content(
                 model=judge_model,
                 contents=prompt,
