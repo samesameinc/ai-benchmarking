@@ -7,7 +7,7 @@ packages = ["ai_benchmarking"]
 
 [project]
 name = "ai-benchmarking"
-version = "0.5.0"
+version = "0.6.0"
 description = "A benchmarking framework for evaluating LLM accuracy and safety in suicide risk assessment using the C-SSRS scale."
 readme = "README.md"
 requires-python = ">=3.12"
