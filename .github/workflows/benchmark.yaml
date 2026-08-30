@@ -15,4 +15,4 @@ jobs:
         run: |
           uv run python -m ai_benchmarking.eval \
             --provider gemini --model gemini-3.5-flash-lite \
-            --data data/input.json --output outputs/ci_test.json
+            --data data/input.json --output ci_test.json
