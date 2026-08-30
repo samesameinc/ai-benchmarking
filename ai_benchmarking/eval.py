@@ -156,6 +156,12 @@ async def run_benchmark_async(
         # Guard against an empty file raising a decode error
         if raw_kb:
             knowledge_base = json.loads(raw_kb)
+    else:
+        with open("data/knowledge_base.json", "r", encoding="utf-8") as f:
+            raw_kb = f.read().strip()
+        # Guard against an empty file raising a decode error
+        if raw_kb:
+            knowledge_base = json.loads(raw_kb)
 
     print(
         f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries..."
