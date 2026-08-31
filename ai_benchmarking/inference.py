@@ -1,7 +1,5 @@
-import asyncio
 import json
 import os
-import random
 import time
 from typing import Any, Iterable, cast
 
@@ -18,17 +16,18 @@ from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from openai.lib._pydantic import to_strict_json_schema
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 load_dotenv()
 
-# ---------------------------------------------------------------------------
-# CLIENT FACTORY FUNCTIONS
-# ---------------------------------------------------------------------------
-
 
 def create_google_genai_client(api_key: str | None = None) -> genai.Client:
-    """Create a google-genai Client using an API key or Application Default Credentials."""
     final_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if final_key:
         return genai.Client(api_key=final_key)
@@ -44,18 +43,11 @@ def create_google_genai_client(api_key: str | None = None) -> genai.Client:
 
 
 def create_openai_client(api_key: str | None = None) -> AsyncOpenAI:
-    """Create an AsyncOpenAI Client using an explicit key or OPENAI_API_KEY env variable."""
     return AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
 
 
 def create_anthropic_client(api_key: str | None = None) -> AsyncAnthropic:
-    """Create an AsyncAnthropic Client using an explicit key or ANTHROPIC_API_KEY env variable."""
     return AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
-
-
-# ---------------------------------------------------------------------------
-# STRUCTURED RESPONSE SCHEMA
-# ---------------------------------------------------------------------------
 
 
 class RiskResponse(BaseModel):
@@ -64,13 +56,19 @@ class RiskResponse(BaseModel):
     )
 
 
-# Precompile strict schema for OpenAI structured outputs
 OPENAI_STRICT_SCHEMA = to_strict_json_schema(RiskResponse)
 
 
-# ---------------------------------------------------------------------------
-# CORE ASYNC MULTI-PROVIDER EVALUATION ENGINE
-# ---------------------------------------------------------------------------
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1.5, min=1, max=10),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _execute_gemini_with_retry(client, model, formatted_query, config_payload):
+    return await client.aio.models.generate_content(
+        model=model, contents=formatted_query, config=config_payload
+    )
 
 
 async def generate_ai_response_async(
@@ -79,23 +77,16 @@ async def generate_ai_response_async(
     model: str = "gemini-3.6-flash",
     cache_name: str | None = None,
     fallback_prompt: str = "",
-    client: Any | None = None,  # Shared persistent connection pool passed from eval.py
+    client: Any | None = None,
 ) -> dict:
-    """Executes target string classification across isolated token-cached frameworks."""
-
-    # Fallback storage variables
     raw_content = ""
     p_tokens = 0
     c_tokens = 0
     cached_tokens = 0
     api_latency = 0.0
 
-    # 1. STRUCTURAL ISOLATION FENCE
     formatted_query = f"Classify this specific user target query string:\n<target_query>{query}</target_query>"
 
-    # -----------------------------------------------------------------------
-    # PROVIDER METRICS LAYER: OPENAI
-    # -----------------------------------------------------------------------
     if provider == "openai":
         local_client = client if client else create_openai_client()
 
@@ -117,22 +108,17 @@ async def generate_ai_response_async(
             },
         )
         api_latency = time.time() - start_time
-
         raw_content = (
             str(response.choices[0].message.content)
             if response.choices[0].message.content
             else ""
         )
-        if response.usage is not None:
+        if response.usage:
             p_tokens = response.usage.prompt_tokens
             c_tokens = response.usage.completion_tokens
 
-    # -----------------------------------------------------------------------
-    # PROVIDER METRICS LAYER: ANTHROPIC (WITH PROMPT CACHING & TOOL USE)
-    # -----------------------------------------------------------------------
     elif provider == "anthropic":
         local_client = client if client else create_anthropic_client()
-
         tool_definition = cast(
             ToolParam,
             {
@@ -142,7 +128,7 @@ async def generate_ai_response_async(
             },
         )
 
-        system_input: str | list[TextBlockParam] = (
+        system_input = (
             [
                 cast(
                     TextBlockParam,
@@ -156,7 +142,6 @@ async def generate_ai_response_async(
             if fallback_prompt
             else ""
         )
-
         tool_choice = cast(
             ToolChoiceToolParam, {"type": "tool", "name": "risk_response"}
         )
@@ -184,20 +169,13 @@ async def generate_ai_response_async(
                 raw_content = json.dumps(content_block.input)
                 break
 
-        if response.usage is not None:
+        if response.usage:
             p_tokens = response.usage.input_tokens or 0
             c_tokens = response.usage.output_tokens or 0
             cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0) or 0
 
-    # -----------------------------------------------------------------------
-    # PROVIDER METRICS LAYER: GEMINI (EXPLICIT CONTEXT CACHING ACTIVE)
-    # -----------------------------------------------------------------------
     elif provider == "gemini":
         local_client = client if client else create_google_genai_client()
-
-        max_retries = 8
-        initial_delay = 1.0
-
         safety_settings = [
             types.SafetySetting(
                 category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -223,74 +201,44 @@ async def generate_ai_response_async(
             response_schema=RiskResponse,
             safety_settings=safety_settings,
         )
-
         if cache_name:
             config_payload.cached_content = cache_name
         else:
             config_payload.system_instruction = fallback_prompt
 
-        for attempt in range(max_retries):
-            try:
-                start_time = time.time()
-                response = await local_client.aio.models.generate_content(
-                    model=model, contents=formatted_query, config=config_payload
+        try:
+            start_time = time.time()
+            response = await _execute_gemini_with_retry(
+                local_client, model, formatted_query, config_payload
+            )
+            api_latency = time.time() - start_time
+            raw_content = str(response.text) if response.text else ""
+
+            if response.usage_metadata:
+                total_prompt_sum = response.usage_metadata.prompt_token_count or 0
+                cached_tokens = (
+                    getattr(response.usage_metadata, "cached_content_token_count", 0)
+                    or 0
                 )
-                api_latency = time.time() - start_time
-
-                raw_content = str(response.text) if response.text else ""
-
-                if response.usage_metadata:
-                    total_prompt_sum = response.usage_metadata.prompt_token_count or 0
-                    cached_tokens = (
-                        getattr(
-                            response.usage_metadata, "cached_content_token_count", 0
-                        )
-                        or 0
-                    )
-                    p_tokens = total_prompt_sum - cached_tokens
-                    c_tokens = response.usage_metadata.candidates_token_count or 0
-
-                break
-
-            except Exception as api_err:
-                if "Too many open files" in str(api_err):
-                    print(
-                        "!!! OS Socket Exhaustion encountered. Retrying execution context frame..."
-                    )
-
-                if attempt == max_retries - 1:
-                    return {
-                        "error": f"API connection failure after {max_retries} attempts: {str(api_err)}",
-                        "cached_tokens": 0,
-                    }
-
-                sleep_duration = (initial_delay * (2**attempt)) + random.uniform(
-                    0.1, 1.0
-                )
-                await asyncio.sleep(sleep_duration)
+                p_tokens = total_prompt_sum - cached_tokens
+                c_tokens = response.usage_metadata.candidates_token_count or 0
+        except Exception as e:
+            return {"error": f"API connection failure: {str(e)}", "cached_tokens": 0}
 
     # -----------------------------------------------------------------------
-    # PRODUCTION COMPILATION & DATA SAFETY RAIL
+    # CLINICAL SAFETY RAIL: Strict Pydantic Validation & -1 Fallback
     # -----------------------------------------------------------------------
     try:
-        parsed_json = json.loads(raw_content) if raw_content else {}
-
-        if isinstance(parsed_json, list):
-            parsed_json = (
-                parsed_json[0]
-                if len(parsed_json) > 0 and isinstance(parsed_json[0], dict)
-                else {}
-            )
-
-        if not isinstance(parsed_json, dict):
-            parsed_json = {}
-
-    except Exception:
-        parsed_json = {}
+        # Validates JSON structure, strips unknown keys, enforces types
+        parsed = RiskResponse.model_validate_json(raw_content)
+        risk_level = parsed.risk_level
+    except (ValidationError, ValueError):
+        # Critical failure path: Prevents silent 0 (safe) classifications on bad API outputs
+        risk_level = -1
 
     return {
         "reasoning": "Skipped for production optimization",
-        "risk_level": int(parsed_json.get("risk_level", 0)),
+        "risk_level": risk_level,
         "latency": api_latency,
         "prompt_tokens": p_tokens,
         "completion_tokens": c_tokens,

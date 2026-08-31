@@ -1,4 +1,3 @@
-# scripts/run_benchmarks_once.py
 import argparse
 import asyncio
 import hashlib
@@ -19,7 +18,7 @@ from ai_benchmarking.inference import (
 )
 from ai_benchmarking.utils import (
     BASE_SYSTEM_PROMPT,
-    calculate_cost,
+    calculate_costs,
     compute_metrics,
     get_severity_metrics,
     save_metrics,
@@ -28,18 +27,6 @@ from ai_benchmarking.utils import (
 load_dotenv()
 
 MAX_CONCURRENT_REQUESTS = 250
-
-CODE_TO_LABEL = {
-    0: "No ideation",
-    1: "Emotional distress",
-    2: "Ambiguous risk",
-    3: "Passive wish to be dead",
-    4: "Active ideation (No method)",
-    5: "Active ideation (Method, no intent)",
-    6: "Active ideation (Method and intent)",
-    7: "Active ideation (Plan and intent)",
-    8: "Attempt or imminent risk",
-}
 
 
 async def process_single_item(
@@ -51,7 +38,6 @@ async def process_single_item(
     fallback_prompt: str = "",
     client: Any | None = None,
 ) -> dict[str, Any]:
-    """Processes one row concurrently inside the shared worker pool."""
     async with semaphore:
         await asyncio.sleep(random.uniform(0.0, 0.2))
 
@@ -81,7 +67,7 @@ async def process_single_item(
                 }
 
             input_score = item.get("expected_risk_level", 0)
-            ai_score = inf.get("risk_level", 0)
+            ai_score = inf.get("risk_level", -1)
 
             input_sev_num, input_resp, input_cat = get_severity_metrics(input_score)
             ai_sev_num, ai_resp, ai_cat = get_severity_metrics(ai_score)
@@ -89,7 +75,7 @@ async def process_single_item(
             is_exact_match = int(input_score) == int(ai_score)
             is_actionable_match = input_resp == ai_resp
 
-            cost = calculate_cost(
+            costs = calculate_costs(
                 prompt_tokens=inf.get("prompt_tokens", 0),
                 completion_tokens=inf.get("completion_tokens", 0),
                 cached_tokens=inf.get("cached_tokens", 0),
@@ -102,6 +88,7 @@ async def process_single_item(
             return {
                 "id": item.get("id"),
                 "query": item.get("user_query"),
+                "risk_level": ai_score,
                 "metrics": {
                     "predicted_risk_level": input_score,
                     "actual_risk_level": ai_score,
@@ -113,7 +100,7 @@ async def process_single_item(
                     "is_actionable_match": is_actionable_match,
                 },
                 "latency": round(latency, 2),
-                "inference_cost_usd": cost,
+                "inference_cost_usd": costs["actual_cost"],
                 "cached_tokens": inf.get("cached_tokens", 0),
             }
 
@@ -151,8 +138,6 @@ async def run_benchmark_async(
             raw_kb = f.read().strip()
         if raw_kb:
             knowledge_base = json.loads(raw_kb)
-    elif kb_path:
-        raise FileNotFoundError(f"Knowledge base file not found: {kb_path}")
 
     print(
         f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries..."
@@ -177,16 +162,11 @@ async def run_benchmark_async(
         from google.genai.errors import ClientError
 
         client = create_google_genai_client()
-
         try:
-            print(
-                "Initializing long-term Context Cache on Google servers (TTL: 24 Hours)..."
-            )
             cached_content = client.caches.create(
                 model=model,
                 config=types.CreateCachedContentConfig(
-                    contents=[base_system_prompt],
-                    ttl="86400s",
+                    contents=[base_system_prompt], ttl="86400s"
                 ),
             )
             cache_name = str(cached_content.name)
@@ -199,16 +179,14 @@ async def run_benchmark_async(
                 or "minimum token count" not in str(e).lower()
             ):
                 raise
-            cache_name = None
             print(
-                "Skipping Gemini explicit cache: prompt is below the 4096-token minimum. Using system_instruction instead."
+                "Skipping Gemini explicit cache: prompt is below minimum token requirement."
             )
 
     elif provider == "openai":
         from openai import AsyncOpenAI
 
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
     elif provider == "anthropic":
         from anthropic import AsyncAnthropic
 
@@ -254,7 +232,6 @@ async def run_benchmark_async(
         )
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-
     tasks = [
         process_single_item(
             item=item,
@@ -307,9 +284,8 @@ async def run_benchmark_async(
     pbar.close()
 
     clean_results = [r for r in results if "error" not in r]
-    total_duration = time.time() - start_bench_time
     print(
-        f"Completed {len(clean_results)} loop tasks in {round(total_duration, 2)} seconds."
+        f"Completed {len(clean_results)} loop tasks in {round(time.time() - start_bench_time, 2)} seconds."
     )
 
     benchmark_metadata = {
@@ -323,15 +299,10 @@ async def run_benchmark_async(
     }
 
     metrics = compute_metrics(clean_results, provider=provider, model=model)
-
-    final_output = {
-        "benchmark_metadata": benchmark_metadata,
-        **metrics,
-    }
+    final_output = {"benchmark_metadata": benchmark_metadata, **metrics}
 
     if output_path:
         save_metrics(final_output, output_path)
-        print(f"Metrics mapped successfully. Results saved out to: {output_path}")
 
     return final_output
 
@@ -339,23 +310,14 @@ async def run_benchmark_async(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--provider",
-        type=str,
-        required=True,
-        choices=["gemini", "openai", "anthropic"],
+        "--provider", type=str, required=True, choices=["gemini", "openai", "anthropic"]
     )
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--data", type=str, required=True)
-    parser.add_argument(
-        "--kb",
-        type=str,
-        default=None,
-        help="Optional few-shot knowledge base JSON. Omit to evaluate the --data labels without the examples as context.",
-    )
+    parser.add_argument("--kb", type=str, default=None)
     parser.add_argument("--output", type=str, required=False)
 
     args = parser.parse_args()
-
     asyncio.run(
         run_benchmark_async(
             data_path=args.data,
