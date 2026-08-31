@@ -40,39 +40,22 @@ You can evaluate different models by changing the --provider and --model flags. 
       --judge-model gemini-3.5-flash
     ```
 
-2. **Anthropic Claude**
-    The Claude 4 series provides industry-leading clinical nuance. For model names, see https://platform.claude.com/docs/en/about-claude/models/overview
-
-   - Inference Model: `claude-4-sonnet-20260217` or `claude-4-haiku-20251015`
-    
-   - Judge Model: `claude-4-sonnet-20260217`
-
-    ```bash
-    uv run python -m ai_benchmarking.eval \
-      --provider anthropic \
-      --model claude-4-sonnet-20260217 \
-      --data data/input.json \
-      --output outputs/claude_results.json \
-      --kb data/knowledge_base.json \
-      --judge-model gemini-3.1-flash-lite
-    ```
-
-3. **OpenAI**
+2**OpenAI**
     OpenAI's latest "O-series" models are built for deep reasoning and safety. For model names, see https://platform.openai.com/chat/edit.
 
    - Inference Model: `gpt-5.2-chat-latest` or `o5-mini`
 
    - Judge Model: `gpt-5.1-mini`
 
-    ```bash
-    uv run python -m ai_benchmarking.eval \
-      --provider openai \
-      --model o5-mini \
-      --data data/input.json \
-      --output outputs/openai_results.json \ 
-      --kb data/knowledge_base.json \
-      --judge-model gemini-3.1-flash-lite
-    ```
+```bash
+uv run python -m ai_benchmarking.eval \
+  --provider openai \
+  --model o5-mini \
+  --data data/input.json \
+  --output outputs/openai_results.json \ 
+  --kb data/knowledge_base.json \
+  --judge-model gemini-3.1-flash-lite
+```
 
 You may also evaluate a --model against a --data dataset without using --kb to augment the base
 prompt, and without using --judge-model to skip evaluating safety and communication_quality
@@ -80,14 +63,14 @@ dimensions.  This is particularly useful to test a new model's ability to accura
 just our zero-shot `base_system_prompt` against the human-evaluated `knowledge_base.json`, aka our
 "Gold Master" dataset, by running:
 
-    ```bash
-    MODEL=gemini-3.1-flash-lite
-    uv run python -m ai_benchmarking.eval \
-      --provider gemini \
-      --model $MODEL \
-      --data data/knowledge_base.json \
-      --output outputs/kb_baseline.${MODEL}.json
-    ```
+```bash
+MODEL=gemini-3.1-flash-lite
+uv run python -m ai_benchmarking.eval \
+  --provider gemini \
+  --model $MODEL \
+  --data data/knowledge_base.json \
+  --output outputs/kb_baseline.${MODEL}.json
+```
 
 Normally, the input --data is assumed to be predicted scores from a lighterweight setup (such as
 output by `process_batches.py`), that are to be AI-evaluated using our kb-augmented model. The above
