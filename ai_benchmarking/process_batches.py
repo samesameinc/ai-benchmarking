@@ -17,13 +17,7 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, Field
 from tqdm import tqdm  # type: ignore
 
-# Robust import handling for direct CLI execution or package module execution
-try:
-    from .inference import create_google_genai_client
-except ImportError:
-    from inference import (
-        create_google_genai_client,  # type: ignore[import-not-found, no-redef]
-    )
+from .inference import create_google_genai_client
 
 # Initialize Global Clients once to utilize connection pooling
 gemini_client = create_google_genai_client()
