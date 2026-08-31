@@ -3,27 +3,36 @@ import json
 import os
 import random
 import time
-from typing import Any
+from typing import Any, Iterable, cast
 
+from anthropic import AsyncAnthropic
+from anthropic.types import (
+    MessageParam,
+    TextBlockParam,
+    ToolChoiceToolParam,
+    ToolParam,
+    ToolUseBlock,
+)
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, Field
 
+load_dotenv()
 
-def create_google_genai_client() -> Any:
-    """Create a google-genai Client using an API key or Application Default Credentials.
+# ---------------------------------------------------------------------------
+# CLIENT FACTORY FUNCTIONS
+# ---------------------------------------------------------------------------
 
-    If GEMINI_API_KEY or GOOGLE_API_KEY is set, use the Gemini Developer API.
-    Otherwise omit the API key so the SDK can discover ADC (typically Vertex AI
-    via GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION).
-    """
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if api_key:
-        return genai.Client(api_key=api_key)
 
-    # Try using the more modern Application Default Credentials (ADC) for auth
+def create_google_genai_client(api_key: str | None = None) -> genai.Client:
+    """Create a google-genai Client using an API key or Application Default Credentials."""
+    final_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if final_key:
+        return genai.Client(api_key=final_key)
+
     kwargs: dict[str, Any] = {}
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("GOOGLE_CLOUD_LOCATION")
@@ -32,6 +41,16 @@ def create_google_genai_client() -> Any:
         kwargs["project"] = project
         kwargs["location"] = location
     return genai.Client(**kwargs)
+
+
+def create_openai_client(api_key: str | None = None) -> AsyncOpenAI:
+    """Create an AsyncOpenAI Client using an explicit key or OPENAI_API_KEY env variable."""
+    return AsyncOpenAI(api_key=api_key or os.getenv("OPENAI_API_KEY"))
+
+
+def create_anthropic_client(api_key: str | None = None) -> AsyncAnthropic:
+    """Create an AsyncAnthropic Client using an explicit key or ANTHROPIC_API_KEY env variable."""
+    return AsyncAnthropic(api_key=api_key or os.getenv("ANTHROPIC_API_KEY"))
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +76,7 @@ OPENAI_STRICT_SCHEMA = to_strict_json_schema(RiskResponse)
 async def generate_ai_response_async(
     query: str,
     provider: str = "gemini",
-    model: str = "gemini-1.5-pro",
+    model: str = "gemini-3.6-flash",
     cache_name: str | None = None,
     fallback_prompt: str = "",
     client: Any | None = None,  # Shared persistent connection pool passed from eval.py
@@ -72,17 +91,13 @@ async def generate_ai_response_async(
     api_latency = 0.0
 
     # 1. STRUCTURAL ISOLATION FENCE
-    # Wraps the raw query string inside XML delimiters to prevent pattern autocomplete loops
     formatted_query = f"Classify this specific user target query string:\n<target_query>{query}</target_query>"
 
     # -----------------------------------------------------------------------
     # PROVIDER METRICS LAYER: OPENAI
     # -----------------------------------------------------------------------
     if provider == "openai":
-        # Fallback local client instantiation if master connection pool isn't passed down
-        local_client = (
-            client if client else AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        )
+        local_client = client if client else create_openai_client()
 
         start_time = time.time()
         response = await local_client.chat.completions.create(
@@ -101,10 +116,8 @@ async def generate_ai_response_async(
                 },
             },
         )
-        # Record only the time taken for the API request
         api_latency = time.time() - start_time
 
-        # FIX: Safely handle potential None values returned by OpenAI and cast to string
         raw_content = (
             str(response.choices[0].message.content)
             if response.choices[0].message.content
@@ -115,19 +128,76 @@ async def generate_ai_response_async(
             c_tokens = response.usage.completion_tokens
 
     # -----------------------------------------------------------------------
+    # PROVIDER METRICS LAYER: ANTHROPIC (WITH PROMPT CACHING & TOOL USE)
+    # -----------------------------------------------------------------------
+    elif provider == "anthropic":
+        local_client = client if client else create_anthropic_client()
+
+        tool_definition = cast(
+            ToolParam,
+            {
+                "name": "risk_response",
+                "description": "Record the predicted C-SSRS risk classification score.",
+                "input_schema": RiskResponse.model_json_schema(),
+            },
+        )
+
+        system_input: str | list[TextBlockParam] = (
+            [
+                cast(
+                    TextBlockParam,
+                    {
+                        "type": "text",
+                        "text": fallback_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                )
+            ]
+            if fallback_prompt
+            else ""
+        )
+
+        tool_choice = cast(
+            ToolChoiceToolParam, {"type": "tool", "name": "risk_response"}
+        )
+        messages = cast(
+            Iterable[MessageParam], [{"role": "user", "content": formatted_query}]
+        )
+
+        start_time = time.time()
+        response = await local_client.messages.create(
+            model=model,
+            max_tokens=1024,
+            system=system_input,
+            tools=[tool_definition],
+            tool_choice=tool_choice,
+            messages=messages,
+            extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
+        )
+        api_latency = time.time() - start_time
+
+        for content_block in response.content:
+            if (
+                isinstance(content_block, ToolUseBlock)
+                and content_block.name == "risk_response"
+            ):
+                raw_content = json.dumps(content_block.input)
+                break
+
+        if response.usage is not None:
+            p_tokens = response.usage.input_tokens or 0
+            c_tokens = response.usage.output_tokens or 0
+            cached_tokens = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+
+    # -----------------------------------------------------------------------
     # PROVIDER METRICS LAYER: GEMINI (EXPLICIT CONTEXT CACHING ACTIVE)
     # -----------------------------------------------------------------------
     elif provider == "gemini":
-        if client is None:
-            raise ValueError(
-                "Production execution requires an active master singleton client pool handle."
-            )
+        local_client = client if client else create_google_genai_client()
 
-        # Resilient network parameters for heavy concurrency loads
         max_retries = 8
         initial_delay = 1.0
 
-        # Define safety settings to prevent standard filters from blocking clinical triage strings
         safety_settings = [
             types.SafetySetting(
                 category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -147,7 +217,6 @@ async def generate_ai_response_async(
             ),
         ]
 
-        # Configure base payload using the new unified SDK
         config_payload = types.GenerateContentConfig(
             temperature=0.0,
             response_mime_type="application/json",
@@ -160,21 +229,17 @@ async def generate_ai_response_async(
         else:
             config_payload.system_instruction = fallback_prompt
 
-        # Resilient network loop execution layer
         for attempt in range(max_retries):
             try:
                 start_time = time.time()
-                response = await client.aio.models.generate_content(
+                response = await local_client.aio.models.generate_content(
                     model=model, contents=formatted_query, config=config_payload
                 )
-                # Record only the time taken for the successful API request
                 api_latency = time.time() - start_time
 
-                # FIX: Safely cast to string
                 raw_content = str(response.text) if response.text else ""
 
                 if response.usage_metadata:
-                    # CORE MATH EQUATION: Subtract cached subset volume from total input mass
                     total_prompt_sum = response.usage_metadata.prompt_token_count or 0
                     cached_tokens = (
                         getattr(
@@ -182,8 +247,6 @@ async def generate_ai_response_async(
                         )
                         or 0
                     )
-
-                    # Ensure standard billing metrics are only charged for the new query tokens
                     p_tokens = total_prompt_sum - cached_tokens
                     c_tokens = response.usage_metadata.candidates_token_count or 0
 
@@ -195,14 +258,12 @@ async def generate_ai_response_async(
                         "!!! OS Socket Exhaustion encountered. Retrying execution context frame..."
                     )
 
-                # Bubble connection fault back to eval orchestrator if max retries hit
                 if attempt == max_retries - 1:
                     return {
                         "error": f"API connection failure after {max_retries} attempts: {str(api_err)}",
                         "cached_tokens": 0,
                     }
 
-                # Jittered Exponential Backoff
                 sleep_duration = (initial_delay * (2**attempt)) + random.uniform(
                     0.1, 1.0
                 )
@@ -212,10 +273,8 @@ async def generate_ai_response_async(
     # PRODUCTION COMPILATION & DATA SAFETY RAIL
     # -----------------------------------------------------------------------
     try:
-        # FIX: Prevent parsing failures on empty strings
         parsed_json = json.loads(raw_content) if raw_content else {}
 
-        # Captures array output formats and safely extracts the first item dictionary
         if isinstance(parsed_json, list):
             parsed_json = (
                 parsed_json[0]
@@ -227,7 +286,6 @@ async def generate_ai_response_async(
             parsed_json = {}
 
     except Exception:
-        # Fallback parsing defaults in case of a malformed generation payload
         parsed_json = {}
 
     return {
@@ -236,5 +294,5 @@ async def generate_ai_response_async(
         "latency": api_latency,
         "prompt_tokens": p_tokens,
         "completion_tokens": c_tokens,
-        "cached_tokens": cached_tokens,  # Returned to the eval loop for progress bar aggregation
+        "cached_tokens": cached_tokens,
     }
