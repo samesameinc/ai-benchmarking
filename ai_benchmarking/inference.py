@@ -1,13 +1,14 @@
+import asyncio
 import json
 import os
-import time
-import asyncio
 import random
-from pydantic import BaseModel, Field
+import time
+
 from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 from openai.lib._pydantic import to_strict_json_schema
+from pydantic import BaseModel, Field
 
 
 def create_google_genai_client():
@@ -36,8 +37,11 @@ def create_google_genai_client():
 # STRUCTURED RESPONSE SCHEMA
 # ---------------------------------------------------------------------------
 
+
 class RiskResponse(BaseModel):
-    risk_level: int = Field(description="The predicted C-SSRS risk score as an integer from 0 to 8")
+    risk_level: int = Field(
+        description="The predicted C-SSRS risk score as an integer from 0 to 8"
+    )
 
 
 # Precompile strict schema for OpenAI structured outputs
@@ -48,13 +52,14 @@ OPENAI_STRICT_SCHEMA = to_strict_json_schema(RiskResponse)
 # CORE ASYNC MULTI-PROVIDER EVALUATION ENGINE
 # ---------------------------------------------------------------------------
 
+
 async def generate_ai_response_async(
-        query: str,
-        provider: str = "gemini",
-        model: str = "gemini-1.5-pro",
-        cache_name: str = None,
-        fallback_prompt: str = "",
-        client=None,  # Shared persistent connection pool passed from eval.py
+    query: str,
+    provider: str = "gemini",
+    model: str = "gemini-1.5-pro",
+    cache_name: str = None,
+    fallback_prompt: str = "",
+    client=None,  # Shared persistent connection pool passed from eval.py
 ) -> dict:
     """Executes target string classification across isolated token-cached frameworks."""
 
@@ -74,7 +79,9 @@ async def generate_ai_response_async(
     # -----------------------------------------------------------------------
     if provider == "openai":
         # Fallback local client instantiation if master connection pool isn't passed down
-        local_client = client if client else AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        local_client = (
+            client if client else AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        )
 
         start_time = time.time()
         response = await local_client.chat.completions.create(
@@ -89,8 +96,8 @@ async def generate_ai_response_async(
                 "json_schema": {
                     "name": "risk_response",
                     "schema": OPENAI_STRICT_SCHEMA,
-                    "strict": True
-                }
+                    "strict": True,
+                },
             },
         )
         # Record only the time taken for the API request
@@ -105,7 +112,9 @@ async def generate_ai_response_async(
     # -----------------------------------------------------------------------
     elif provider == "gemini":
         if client is None:
-            raise ValueError("Production execution requires an active master singleton client pool handle.")
+            raise ValueError(
+                "Production execution requires an active master singleton client pool handle."
+            )
 
         # Resilient network parameters for heavy concurrency loads
         max_retries = 8
@@ -113,10 +122,18 @@ async def generate_ai_response_async(
 
         # Define safety settings to prevent standard filters from blocking clinical triage strings
         safety_settings = [
-            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+            types.SafetySetting(
+                category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"
+            ),
         ]
 
         # Configure base payload using the new unified SDK
@@ -146,7 +163,10 @@ async def generate_ai_response_async(
 
                 # CORE MATH EQUATION: Subtract cached subset volume from total input mass
                 total_prompt_sum = response.usage_metadata.prompt_token_count or 0
-                cached_tokens = getattr(response.usage_metadata, "cached_content_token_count", 0) or 0
+                cached_tokens = (
+                    getattr(response.usage_metadata, "cached_content_token_count", 0)
+                    or 0
+                )
 
                 # Ensure standard billing metrics are only charged for the new query tokens
                 p_tokens = total_prompt_sum - cached_tokens
@@ -155,7 +175,9 @@ async def generate_ai_response_async(
 
             except Exception as api_err:
                 if "Too many open files" in str(api_err):
-                    print("!!! OS Socket Exhaustion encountered. Retrying execution context frame...")
+                    print(
+                        "!!! OS Socket Exhaustion encountered. Retrying execution context frame..."
+                    )
 
                 # Bubble connection fault back to eval orchestrator if max retries hit
                 if attempt == max_retries - 1:
@@ -165,7 +187,9 @@ async def generate_ai_response_async(
                     }
 
                 # Jittered Exponential Backoff
-                sleep_duration = (initial_delay * (2 ** attempt)) + random.uniform(0.1, 1.0)
+                sleep_duration = (initial_delay * (2**attempt)) + random.uniform(
+                    0.1, 1.0
+                )
                 await asyncio.sleep(sleep_duration)
 
     # -----------------------------------------------------------------------
@@ -176,7 +200,11 @@ async def generate_ai_response_async(
 
         # Captures array output formats and safely extracts the first item dictionary
         if isinstance(parsed_json, list):
-            parsed_json = parsed_json[0] if len(parsed_json) > 0 and isinstance(parsed_json[0], dict) else {}
+            parsed_json = (
+                parsed_json[0]
+                if len(parsed_json) > 0 and isinstance(parsed_json[0], dict)
+                else {}
+            )
 
         if not isinstance(parsed_json, dict):
             parsed_json = {}

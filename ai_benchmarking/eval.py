@@ -1,15 +1,16 @@
 # scripts/run_benchmarks_once.py
 import argparse
 import asyncio
+import hashlib
 import json
 import os
-import time
 import random
-import hashlib
+import time
 from datetime import datetime, timezone
+
 import pandas as pd
-from tqdm.asyncio import tqdm_asyncio
 from dotenv import load_dotenv
+from tqdm.asyncio import tqdm_asyncio
 
 from .inference import create_google_genai_client, generate_ai_response_async
 from .utils import calculate_cost, compute_metrics, get_severity_metrics, save_metrics
@@ -34,13 +35,7 @@ CODE_TO_LABEL = {
 
 
 async def process_single_item(
-        item,
-        provider,
-        model,
-        semaphore,
-        cache_name=None,
-        fallback_prompt="",
-        client=None
+    item, provider, model, semaphore, cache_name=None, fallback_prompt="", client=None
 ):
     """Processes one row concurrently inside the shared worker pool."""
     async with semaphore:
@@ -54,16 +49,22 @@ async def process_single_item(
                 model=model,
                 cache_name=cache_name,
                 fallback_prompt=fallback_prompt,
-                client=client
+                client=client,
             )
 
             if not inf or "error" in inf:
-                error_msg = inf.get("error", "Empty response from inference model") if inf else "Null response"
-                print(f"!!! Row {item.get('id', 'Unknown')} failed inference: {error_msg}")
+                error_msg = (
+                    inf.get("error", "Empty response from inference model")
+                    if inf
+                    else "Null response"
+                )
+                print(
+                    f"!!! Row {item.get('id', 'Unknown')} failed inference: {error_msg}"
+                )
                 return {
                     "id": item.get("id"),
                     "query": item.get("user_query"),
-                    "error": error_msg
+                    "error": error_msg,
                 }
 
             # Standardized expected and predicted attributes mapped directly
@@ -105,7 +106,9 @@ async def process_single_item(
                 },
                 "latency": round(latency, 2),
                 "inference_cost_usd": cost,
-                "cached_tokens": inf.get("cached_tokens", 0),  # Forwarded to tqdm aggregator
+                "cached_tokens": inf.get(
+                    "cached_tokens", 0
+                ),  # Forwarded to tqdm aggregator
             }
 
         except Exception as e:
@@ -117,9 +120,7 @@ async def process_single_item(
             }
 
 
-async def run_benchmark_async(
-        data_path, kb_path, output_path, provider, model
-):
+async def run_benchmark_async(data_path, kb_path, output_path, provider, model):
     # Dynamic ingestion based on input dataset file extension
     if data_path.endswith(".json"):
         with open(data_path, "r", encoding="utf-8") as f:
@@ -143,7 +144,9 @@ async def run_benchmark_async(
     elif kb_path:
         raise FileNotFoundError(f"Knowledge base file not found: {kb_path}")
 
-    print(f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries...")
+    print(
+        f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries..."
+    )
     start_bench_time = time.time()
 
     # 1. COMPILE THE FULL MASTER PROMPT ONCE
@@ -164,8 +167,8 @@ async def run_benchmark_async(
         "RESPONSE CONSTRAINT: You must return ONLY a structured JSON format containing exactly one key"
         ": 'risk_level' (integer 0-8).\n\n"
         "AMBIGUITY & CONTEXT CONSTRAINT: If a user statement is vague, missing a direct object, or uses ambiguous phrasing"
-        " (e.g., \"Let's do it\", \"I am going to do it\", \"It's time\", \"Goodbye\"), you MUST NOT assume"
-        " or extrapolate that \"it\" refers to suicide or self-harm."
+        ' (e.g., "Let\'s do it", "I am going to do it", "It\'s time", "Goodbye"), you MUST NOT assume'
+        ' or extrapolate that "it" refers to suicide or self-harm.'
         "Unless explicit suicidal indicators, methods, or clear self-harm contexts are present in the text,"
         " classify these context-deficient phrases strictly as 0 (No ideation) or 2 (Ambiguous risk)."
         "Err on the side of objective literal meaning rather than clinical assumptions."
@@ -177,8 +180,8 @@ async def run_benchmark_async(
             base_system_prompt += f'Query: "{sample.get("user_query", "")}" -> Expected Risk Level: {sample.get("Risk_level", 0)}\n'
 
     # Generate Secure Hashes for Benchmark Metadata
-    prompt_hash = hashlib.sha256(base_system_prompt.encode('utf-8')).hexdigest()
-    kb_hash = hashlib.sha256(raw_kb.encode('utf-8')).hexdigest() if raw_kb else None
+    prompt_hash = hashlib.sha256(base_system_prompt.encode("utf-8")).hexdigest()
+    kb_hash = hashlib.sha256(raw_kb.encode("utf-8")).hexdigest() if raw_kb else None
 
     cache_name = None
     client = None
@@ -190,25 +193,34 @@ async def run_benchmark_async(
         client = create_google_genai_client()
 
         try:
-            print("Initializing long-term Context Cache on Google servers (TTL: 24 Hours)...")
+            print(
+                "Initializing long-term Context Cache on Google servers (TTL: 24 Hours)..."
+            )
             cached_content = client.caches.create(
                 model=model,
                 config=types.CreateCachedContentConfig(
                     contents=[base_system_prompt],
                     ttl="86400s",
-                )
+                ),
             )
             cache_name = cached_content.name
-            print(f"Context cached successfully! Handle reference identifier: {cache_name}")
+            print(
+                f"Context cached successfully! Handle reference identifier: {cache_name}"
+            )
         except ClientError as e:
-            if getattr(e, "code", None) != 400 or "minimum token count" not in str(e).lower():
+            if (
+                getattr(e, "code", None) != 400
+                or "minimum token count" not in str(e).lower()
+            ):
                 raise
             cache_name = None
             print(
-                "Skipping Gemini explicit cache: prompt is below the 4096-token minimum. Using system_instruction instead.")
+                "Skipping Gemini explicit cache: prompt is below the 4096-token minimum. Using system_instruction instead."
+            )
 
     elif provider == "openai":
         from openai import AsyncOpenAI
+
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     # Parse and standardize items
@@ -237,18 +249,26 @@ async def run_benchmark_async(
 
         # Map input 1st-Line Judge label (predicted) -> expected_risk_level
         expected_score = None
-        for k in ["expected_risk_level", "predicted_risk_score", "Risk_level", "risk_level", "predicted_risk_level"]:
+        for k in [
+            "expected_risk_level",
+            "predicted_risk_score",
+            "Risk_level",
+            "risk_level",
+            "predicted_risk_level",
+        ]:
             if k in item:
                 expected_score = item[k]
                 break
         if expected_score is None:
             expected_score = 0
 
-        dataset.append({
-            "id": item_id,
-            "user_query": text_val,
-            "expected_risk_level": expected_score
-        })
+        dataset.append(
+            {
+                "id": item_id,
+                "user_query": text_val,
+                "expected_risk_level": expected_score,
+            }
+        )
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
@@ -260,7 +280,7 @@ async def run_benchmark_async(
             semaphore=semaphore,
             cache_name=cache_name,
             fallback_prompt=base_system_prompt,
-            client=client
+            client=client,
         )
         for item in dataset
     ]
@@ -285,21 +305,29 @@ async def run_benchmark_async(
                 cache_hit_count += 1
 
         completion_pct = (completed_count / total_tasks) * 100
-        cache_hit_rate = (cache_hit_count / completed_count) * 100 if completed_count > 0 else 0.0
+        cache_hit_rate = (
+            (cache_hit_count / completed_count) * 100 if completed_count > 0 else 0.0
+        )
 
-        pbar.set_postfix({
-            "done_pct": f"{completion_pct:.1f}%",
-            "cache_hit_rate": f"{cache_hit_rate:.1f}%",
-            "total_cached": f"{total_cached_tokens_accumulated:,}",
-            "last_cached": "Yes" if row_result.get("cached_tokens", 0) > 0 else "No"
-        })
+        pbar.set_postfix(
+            {
+                "done_pct": f"{completion_pct:.1f}%",
+                "cache_hit_rate": f"{cache_hit_rate:.1f}%",
+                "total_cached": f"{total_cached_tokens_accumulated:,}",
+                "last_cached": (
+                    "Yes" if row_result.get("cached_tokens", 0) > 0 else "No"
+                ),
+            }
+        )
         pbar.update(1)
 
     pbar.close()
 
     clean_results = [r for r in results if "error" not in r]
     total_duration = time.time() - start_bench_time
-    print(f"Completed {len(clean_results)} loop tasks in {round(total_duration, 2)} seconds.")
+    print(
+        f"Completed {len(clean_results)} loop tasks in {round(total_duration, 2)} seconds."
+    )
 
     # 4. Generate Metadata & Final Payload
     benchmark_metadata = {
@@ -309,7 +337,7 @@ async def run_benchmark_async(
         "data_path": data_path,
         "kb_path": target_kb_path,
         "prompt_hash": prompt_hash,
-        "kb_hash": kb_hash
+        "kb_hash": kb_hash,
     }
 
     metrics = compute_metrics(clean_results, provider=provider, model=model)
@@ -317,7 +345,7 @@ async def run_benchmark_async(
     # Wrap standard output payload inside the new benchmark metadata schema wrapper
     final_output = {
         "benchmark_metadata": benchmark_metadata,
-        **metrics  # Dynamically spreads benchmark_summary and itemized_results
+        **metrics,  # Dynamically spreads benchmark_summary and itemized_results
     }
 
     if output_path:
@@ -348,6 +376,6 @@ if __name__ == "__main__":
             kb_path=args.kb,
             output_path=args.output,
             provider=args.provider,
-            model=args.model
+            model=args.model,
         )
     )

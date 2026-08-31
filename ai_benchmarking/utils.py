@@ -10,7 +10,6 @@ PRICING_MAP = {
         "gpt-5.6-sol": [5.00, 30.00, 0.50],
         "gpt-5.6-terra": [2.00, 12.00, 0.20],
         "gpt-5.6-luna": [0.20, 1.20, 0.02],
-
         # Previous Generations
         "gpt-5.5": [5.00, 30.00, 0.50],
         "gpt-5.4": [2.50, 15.00, 0.25],
@@ -25,12 +24,11 @@ PRICING_MAP = {
         "gemini-3.1-pro": [2.00, 12.00, 0.20],
         "gemini-3.1-flash": [0.10, 0.40, 0.01],
         "gemini-3.1-flash-lite": [0.25, 1.50, 0.025],
-
         # Gemini 1.x & 2.x Legacy/LTS Series
         "gemini-2.5-flash": [0.30, 2.50, 0.03],
         "gemini-1.5-pro": [1.25, 5.00, 0.3125],
         "gemini-1.5-flash": [0.075, 0.30, 0.01875],
-    }
+    },
 }
 
 
@@ -98,7 +96,13 @@ def get_severity_metrics(risk_level):
     return None, "Unknown", "Unknown"
 
 
-def calculate_cost(prompt_tokens, completion_tokens, cached_tokens=0, provider="openai", model="gpt-5.6-luna"):
+def calculate_cost(
+    prompt_tokens,
+    completion_tokens,
+    cached_tokens=0,
+    provider="openai",
+    model="gpt-5.6-luna",
+):
     """
     Calculates cost based on standard and cached token usage.
     """
@@ -110,9 +114,11 @@ def calculate_cost(prompt_tokens, completion_tokens, cached_tokens=0, provider="
     cached_rate = rates[2] if len(rates) > 2 else (rates[0] * 0.10)
 
     # Core Math Equation: Standard Inputs + Output Generation + Cheap Cached Hits
-    cost = (prompt_tokens / 1_000_000 * rates[0]) + \
-           (completion_tokens / 1_000_000 * rates[1]) + \
-           (cached_tokens / 1_000_000 * cached_rate)
+    cost = (
+        (prompt_tokens / 1_000_000 * rates[0])
+        + (completion_tokens / 1_000_000 * rates[1])
+        + (cached_tokens / 1_000_000 * cached_rate)
+    )
 
     return round(cost, 6)
 
