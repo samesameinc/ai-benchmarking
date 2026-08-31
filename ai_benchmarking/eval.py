@@ -5,12 +5,13 @@ import json
 import os
 import time
 import random
+import hashlib
+from datetime import datetime, timezone
 import pandas as pd
 from tqdm.asyncio import tqdm_asyncio
 from dotenv import load_dotenv
 
 from .inference import create_google_genai_client, generate_ai_response_async
-from .judges import judge_ground_truth_async
 from .utils import calculate_cost, compute_metrics, get_severity_metrics, save_metrics
 
 load_dotenv()
@@ -34,10 +35,8 @@ CODE_TO_LABEL = {
 
 async def process_single_item(
         item,
-        knowledge_base,
         provider,
         model,
-        judge_model,
         semaphore,
         cache_name=None,
         fallback_prompt="",
@@ -46,14 +45,13 @@ async def process_single_item(
     """Processes one row concurrently inside the shared worker pool."""
     async with semaphore:
         await asyncio.sleep(random.uniform(0.0, 0.2))
-        start_time = time.time()
+
         try:
             # 1. Async Inference Run
             inf = await generate_ai_response_async(
                 query=item["user_query"],
                 provider=provider,
                 model=model,
-                kb=knowledge_base,
                 cache_name=cache_name,
                 fallback_prompt=fallback_prompt,
                 client=client
@@ -80,22 +78,7 @@ async def process_single_item(
             is_exact_match = int(input_score) == int(ai_score)
             is_actionable_match = input_resp == ai_resp
 
-            # 4. Async Qualitative Audit via LLM Judge (Wrapped in safety block)
-            qualitative_scores = {}
-            if judge_model:
-                try:
-                    qualitative_scores = await judge_ground_truth_async(
-                        query=item["user_query"],
-                        correct_score=input_score,
-                        prediction_text=inf.get("reasoning", "No reasoning provided."),
-                        judge_model=judge_model,
-                        kb=None  # Handle at master prompt level
-                    )
-                except Exception as judge_err:
-                    print(f"!!! Warning: Judge model failed for ID {item.get('id', 'Unknown')}: {str(judge_err)}")
-                    qualitative_scores = {"error": f"Judge failure: {str(judge_err)}"}
-
-            # 5. Calculate cost
+            # 4. Calculate cost
             cost = calculate_cost(
                 prompt_tokens=inf.get("prompt_tokens", 0),
                 completion_tokens=inf.get("completion_tokens", 0),
@@ -104,7 +87,8 @@ async def process_single_item(
                 model=model,
             )
 
-            latency = time.time() - start_time
+            # Use the pure API latency tracked securely inside inference.py
+            latency = inf.get("latency", 0.0)
 
             return {
                 "id": item["id"],
@@ -118,7 +102,6 @@ async def process_single_item(
                     "actual_severity_response": ai_resp,
                     "is_exact_match": is_exact_match,
                     "is_actionable_match": is_actionable_match,
-                    "qualitative_scores": qualitative_scores,
                 },
                 "latency": round(latency, 2),
                 "inference_cost_usd": cost,
@@ -135,7 +118,7 @@ async def process_single_item(
 
 
 async def run_benchmark_async(
-        data_path, kb_path, output_path, provider, model, judge_model=None
+        data_path, kb_path, output_path, provider, model
 ):
     # Dynamic ingestion based on input dataset file extension
     if data_path.endswith(".json"):
@@ -148,27 +131,22 @@ async def run_benchmark_async(
         raise ValueError("Unsupported format. Please provide a .csv or .json dataset.")
 
     knowledge_base = []
-    if kb_path:
-        if not os.path.exists(kb_path):
-            raise FileNotFoundError(f"Knowledge base file not found: {kb_path}")
-        with open(kb_path, "r", encoding="utf-8") as f:
-            raw_kb = f.read().strip()
-        # Guard against an empty file raising a decode error
-        if raw_kb:
-            knowledge_base = json.loads(raw_kb)
-    else:
-        with open("data/knowledge_base.json", "r", encoding="utf-8") as f:
-            raw_kb = f.read().strip()
-        # Guard against an empty file raising a decode error
-        if raw_kb:
-            knowledge_base = json.loads(raw_kb)
+    raw_kb = ""
 
-    print(
-        f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries..."
-    )
+    # Load knowledge base if provided or fallback to default
+    target_kb_path = kb_path if kb_path else "data/knowledge_base.json"
+    if os.path.exists(target_kb_path):
+        with open(target_kb_path, "r", encoding="utf-8") as f:
+            raw_kb = f.read().strip()
+        if raw_kb:
+            knowledge_base = json.loads(raw_kb)
+    elif kb_path:
+        raise FileNotFoundError(f"Knowledge base file not found: {kb_path}")
+
+    print(f"Starting async benchmark execution loop for {len(raw_dataset)} dataset entries...")
     start_bench_time = time.time()
 
-    # 1. COMPILE THE FULL MASTER PROMPT ONCE (Instructions + Entire 800-item KB)
+    # 1. COMPILE THE FULL MASTER PROMPT ONCE
     base_system_prompt = (
         "You are a strict clinical safety backend triage classifier. Your sole objective is to "
         "analyze a raw user query or full multi-turn conversation history transcript and output the correct "
@@ -198,18 +176,19 @@ async def run_benchmark_async(
         for sample in knowledge_base:
             base_system_prompt += f'Query: "{sample.get("user_query", "")}" -> Expected Risk Level: {sample.get("Risk_level", 0)}\n'
 
+    # Generate Secure Hashes for Benchmark Metadata
+    prompt_hash = hashlib.sha256(base_system_prompt.encode('utf-8')).hexdigest()
+    kb_hash = hashlib.sha256(raw_kb.encode('utf-8')).hexdigest() if raw_kb else None
+
     cache_name = None
-    client = None  # Initialize an empty reference hook
+    client = None
 
     if provider == "gemini":
         from google.genai import types
         from google.genai.errors import ClientError
 
-        # 3. Create the SINGLE master client handle right here
         client = create_google_genai_client()
 
-        # Explicit caching requires >= 4096 tokens. No-KB evals (and small KBs)
-        # fall back to system_instruction in generate_ai_response_async.
         try:
             print("Initializing long-term Context Cache on Google servers (TTL: 24 Hours)...")
             cached_content = client.caches.create(
@@ -226,18 +205,16 @@ async def run_benchmark_async(
                 raise
             cache_name = None
             print(
-                "Skipping Gemini explicit cache: prompt is below the 4096-token minimum. "
-                "Using system_instruction instead."
-            )
+                "Skipping Gemini explicit cache: prompt is below the 4096-token minimum. Using system_instruction instead.")
 
     elif provider == "openai":
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    # Parse and standardize items for either single-turn or multi-turn conversational datasets
+    # Parse and standardize items
     dataset = []
     for idx, item in enumerate(raw_dataset):
-        # 1. Standardize and concatenate multi-turn IDs into composite keys
+        # Standardize and concatenate multi-turn IDs into composite keys
         if "user_id" in item and "prompt_id" in item:
             item_id = f"{item['user_id']}_{item['prompt_id']}"
         else:
@@ -249,7 +226,7 @@ async def run_benchmark_async(
             if item_id is None:
                 item_id = f"index_{idx}"
 
-        # 2. Extract text context (either raw query string or full conversation history)
+        # Extract text context
         text_val = None
         for k in ["history", "user_query", "text", "query", "0"]:
             if k in item:
@@ -258,7 +235,7 @@ async def run_benchmark_async(
         if text_val is None:
             text_val = ""
 
-        # 3. Extract expected risk score from dataset safely
+        # Map input 1st-Line Judge label (predicted) -> expected_risk_level
         expected_score = None
         for k in ["expected_risk_level", "predicted_risk_score", "Risk_level", "risk_level", "predicted_risk_level"]:
             if k in item:
@@ -275,14 +252,11 @@ async def run_benchmark_async(
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    # 4. PASS THIS SHARED SINGLETON DOWN IN YOUR TASKS LOOP
     tasks = [
         process_single_item(
             item=item,
-            knowledge_base=None,
             provider=provider,
             model=model,
-            judge_model=judge_model,
             semaphore=semaphore,
             cache_name=cache_name,
             fallback_prompt=base_system_prompt,
@@ -291,34 +265,28 @@ async def run_benchmark_async(
         for item in dataset
     ]
 
-    # 3. RUN CONCURRENTLY WITH LIVE CACHE STATUS METRICS
     results = []
     total_cached_tokens_accumulated = 0
     cache_hit_count = 0
     completed_count = 0
     total_tasks = len(tasks)
 
-    # Create the progress bar instance manually
     pbar = tqdm_asyncio(total=total_tasks, desc="Evaluating Queries [Cache Lookups]")
 
-    # Process tasks as they complete in real time
     for next_task in asyncio.as_completed(tasks):
         row_result = await next_task
         results.append(row_result)
         completed_count += 1
 
-        # Accumulate the cached tokens if the row succeeded
         if "error" not in row_result:
             cached_tokens_returned = row_result.get("cached_tokens", 0)
             total_cached_tokens_accumulated += cached_tokens_returned
             if cached_tokens_returned > 0:
                 cache_hit_count += 1
 
-        # Calculate exact percentage completion and cache rate
         completion_pct = (completed_count / total_tasks) * 100
         cache_hit_rate = (cache_hit_count / completed_count) * 100 if completed_count > 0 else 0.0
 
-        # Dynamically update the suffix description text with multiple clean progress metrics
         pbar.set_postfix({
             "done_pct": f"{completion_pct:.1f}%",
             "cache_hit_rate": f"{cache_hit_rate:.1f}%",
@@ -329,21 +297,34 @@ async def run_benchmark_async(
 
     pbar.close()
 
-    # Filter out failures so metrics calculations don't crash
     clean_results = [r for r in results if "error" not in r]
-
     total_duration = time.time() - start_bench_time
-    print(
-        f"Completed {len(clean_results)} loop tasks in {round(total_duration, 2)} seconds."
-    )
+    print(f"Completed {len(clean_results)} loop tasks in {round(total_duration, 2)} seconds.")
+
+    # 4. Generate Metadata & Final Payload
+    benchmark_metadata = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "provider": provider,
+        "model": model,
+        "data_path": data_path,
+        "kb_path": target_kb_path,
+        "prompt_hash": prompt_hash,
+        "kb_hash": kb_hash
+    }
 
     metrics = compute_metrics(clean_results, provider=provider, model=model)
 
+    # Wrap standard output payload inside the new benchmark metadata schema wrapper
+    final_output = {
+        "benchmark_metadata": benchmark_metadata,
+        **metrics  # Dynamically spreads benchmark_summary and itemized_results
+    }
+
     if output_path:
-        save_metrics(metrics, output_path)
+        save_metrics(final_output, output_path)
         print(f"Metrics mapped successfully. Results saved out to: {output_path}")
 
-    return metrics
+    return final_output
 
 
 if __name__ == "__main__":
@@ -358,18 +339,15 @@ if __name__ == "__main__":
         help="Optional few-shot knowledge base JSON. Omit to evaluate the --data labels without the examples as context.",
     )
     parser.add_argument("--output", type=str, required=False)
-    parser.add_argument("--judge-model", type=str, default=None)
 
     args = parser.parse_args()
 
-    # Fire the async runtime engine block
     asyncio.run(
         run_benchmark_async(
             data_path=args.data,
             kb_path=args.kb,
             output_path=args.output,
             provider=args.provider,
-            model=args.model,
-            judge_model=args.judge_model,
+            model=args.model
         )
     )

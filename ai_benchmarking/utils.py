@@ -1,5 +1,38 @@
 import json
 
+# =======================================================================
+# GLOBAL PRICING MAP (USD per 1,000,000 Tokens)
+# Format: "model-name": [Input_Rate, Output_Rate, Cached_Input_Rate]
+# =======================================================================
+PRICING_MAP = {
+    "openai": {
+        # Current Gen (GPT-5.6 Series)
+        "gpt-5.6-sol": [5.00, 30.00, 0.50],
+        "gpt-5.6-terra": [2.00, 12.00, 0.20],
+        "gpt-5.6-luna": [0.20, 1.20, 0.02],
+
+        # Previous Generations
+        "gpt-5.5": [5.00, 30.00, 0.50],
+        "gpt-5.4": [2.50, 15.00, 0.25],
+        "gpt-5.4-mini": [0.75, 4.50, 0.075],
+        "gpt-4o": [2.50, 10.00, 1.25],
+        "gpt-4o-mini": [0.15, 0.60, 0.075],
+    },
+    "gemini": {
+        # Gemini 3.x Series
+        "gemini-3.7-flash": [0.75, 3.75, 0.075],
+        "gemini-3.6-flash": [1.50, 7.50, 0.15],
+        "gemini-3.1-pro": [2.00, 12.00, 0.20],
+        "gemini-3.1-flash": [0.10, 0.40, 0.01],
+        "gemini-3.1-flash-lite": [0.25, 1.50, 0.025],
+
+        # Gemini 1.x & 2.x Legacy/LTS Series
+        "gemini-2.5-flash": [0.30, 2.50, 0.03],
+        "gemini-1.5-pro": [1.25, 5.00, 0.3125],
+        "gemini-1.5-flash": [0.075, 0.30, 0.01875],
+    }
+}
+
 
 def get_severity_metrics(risk_level):
     """
@@ -65,29 +98,16 @@ def get_severity_metrics(risk_level):
     return None, "Unknown", "Unknown"
 
 
-def calculate_cost(prompt_tokens, completion_tokens, cached_tokens=0, provider="openai", model="gpt-4o"):
+def calculate_cost(prompt_tokens, completion_tokens, cached_tokens=0, provider="openai", model="gpt-5.6-luna"):
     """
     Calculates cost based on standard and cached token usage.
     """
-    pricing_map = {
-        "openai": {
-            "gpt-4o": [2.50, 10.00, 1.25],  # [Input, Output, Cached]
-            "gpt-4o-mini": [0.15, 0.60, 0.075],
-        },
-        "gemini": {
-            "gemini-3.1-flash-lite": [0.075, 0.30, 0.0075],  # $0.0075 per Million cached lookups!
-            "gemini-3.1-flash": [0.10, 0.40, 0.01],
-            "gemini-3.1-pro": [1.25, 3.75, 0.125],
-        },
-        "anthropic": {
-            "claude-3-5-sonnet-20240620": [3.00, 15.00, 0.30],
-        },
-    }
+    # Safe fallback if a custom/unknown model string is passed
+    default_rates = [0.20, 1.20, 0.02]  # Default to gpt-5.6-luna budget rates
+    rates = PRICING_MAP.get(provider.lower(), {}).get(model.lower(), default_rates)
 
-    rates = pricing_map.get(provider.lower(), {}).get(model.lower(), [2.50, 10.00, 1.25])
-
-    # If the model doesn't explicitly have a 3rd cache index in our map, default it to half price
-    cached_rate = rates[2] if len(rates) > 2 else (rates[0] * 0.5)
+    # If the model doesn't explicitly have a 3rd cache index in our map, default it to roughly 10% or half price
+    cached_rate = rates[2] if len(rates) > 2 else (rates[0] * 0.10)
 
     # Core Math Equation: Standard Inputs + Output Generation + Cheap Cached Hits
     cost = (prompt_tokens / 1_000_000 * rates[0]) + \
@@ -97,7 +117,7 @@ def calculate_cost(prompt_tokens, completion_tokens, cached_tokens=0, provider="
     return round(cost, 6)
 
 
-def compute_metrics(results, provider="gemini", model="gemini-3.1-flash-lite"):
+def compute_metrics(results, provider="gemini", model="gemini-3.7-flash"):
     """Aggregates performance, accuracy, and detailed context caching metrics."""
     total = len(results)
     if total == 0:
@@ -121,24 +141,12 @@ def compute_metrics(results, provider="gemini", model="gemini-3.1-flash-lite"):
     # 3. Context Caching Cost Comparison Calculations
     total_cached_tokens = sum(r.get("cached_tokens", 0) for r in results)
 
-    pricing_map = {
-        "openai": {
-            "gpt-4o": [2.50, 10.00, 1.25],
-            "gpt-4o-mini": [0.15, 0.60, 0.075],
-        },
-        "gemini": {
-            "gemini-3.1-flash-lite": [0.075, 0.30, 0.0075],  # [Input, Output, Cached Lookup]
-            "gemini-3.1-flash": [0.10, 0.40, 0.01],
-            "gemini-3.1-pro": [1.25, 3.75, 0.125],
-        },
-        "anthropic": {
-            "claude-3-5-sonnet-20240620": [3.00, 15.00, 0.30],
-        },
-    }
+    # Grab the active token rates from the global dictionary
+    default_rates = [0.75, 3.75, 0.075]  # Default to gemini-3.7-flash
+    rates = PRICING_MAP.get(provider.lower(), {}).get(model.lower(), default_rates)
 
-    rates = pricing_map.get(provider.lower(), {}).get(model.lower(), [0.075, 0.30, 0.0075])
     standard_input_rate = rates[0]
-    cached_lookup_rate = rates[2]
+    cached_lookup_rate = rates[2] if len(rates) > 2 else (standard_input_rate * 0.10)
 
     # Calculate what they did cost vs what they would have costed regularly
     actual_cached_cost = (total_cached_tokens / 1_000_000) * cached_lookup_rate
