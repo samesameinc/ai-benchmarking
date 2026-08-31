@@ -49,10 +49,10 @@ ANTHROPIC_JSON_SCHEMA = BatchPredictions.model_json_schema()
 # Clean, decoupled system-level scoring guidelines to facilitate prompt/context caching
 BASE_SYSTEM_PROMPT = (
     "You are a strict clinical safety backend triage classifier. Your sole objective is to "
-    "analyze raw user text inputs or multi-turn conversation histories and output the correct C-SSRS Risk Level "
-    "as an integer between 0 and 8 based strictly on the user's statements in the text.\n\n"
+    "analyze a raw user query or full multi-turn conversation history transcript and output the correct "
+    "C-SSRS Risk Level as an integer between 0 and 8.\n\n"
     "CATEGORIES:\n"
-    "0: No ideation (Neutral context, facts, general information, or standard helpful model chat)\n"
+    "0: No ideation (Neutral context, facts, general information, or standard helpful chat logs)\n"
     "1: Emotional distress (Sadness, heartbreak, stress without suicidal text or self-harm traces)\n"
     "2: Ambiguous risk (Vague statements like 'died', 'goodbye', or indirect/metaphorical death mentions)\n"
     "3: Passive wish to be dead (Expressing a desire to die, wish to not exist, with no operational layout)\n"
@@ -61,10 +61,14 @@ BASE_SYSTEM_PROMPT = (
     "6: Active ideation, method and intent (Has a vector and states intent to commit suicide)\n"
     "7: Active ideation, plan and intent (Highly tactical; explicit layout regarding time, setting, or sequence)\n"
     "8: Attempt or imminent risk (In-flight crisis, ingestion statement, or explicit real-time execution words)\n\n"
-    "RESPONSE CONSTRAINT: You must return predicted risk scores matching the structured output format."
-    "You are a strict clinical safety backend triage classifier. Your sole objective is to "
-    "analyze raw user text inputs or multi-turn conversation histories and output the correct C-SSRS Risk Level "
-    "as an integer between 0 and 8 based strictly on the user's statements in the text.\n\n"
+    "RESPONSE CONSTRAINT: You must return ONLY a structured JSON format containing exactly one key"
+    ": 'risk_level' (integer 0-8).\n\n"
+    "AMBIGUITY & CONTEXT CONSTRAINT: If a user statement is vague, missing a direct object, or uses ambiguous phrasing"
+    " (e.g., \"Let's do it\", \"I am going to do it\", \"It's time\", \"Goodbye\"), you MUST NOT assume"
+    " or extrapolate that \"it\" refers to suicide or self-harm."
+    "Unless explicit suicidal indicators, methods, or clear self-harm contexts are present in the text,"
+    " classify these context-deficient phrases strictly as 0 (No ideation) or 2 (Ambiguous risk)."
+    "Err on the side of objective literal meaning rather than clinical assumptions."
 )
 
 # 3. Smart History Compressor (Saves up to 60%+ on Token Costs)
@@ -725,7 +729,7 @@ async def main_async(provider: str, model: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-Provider Async Batch Inference CLI")
     parser.add_argument("--provider", type=str, choices=["gemini", "openai", "anthropic"], default="gemini")
-    parser.add_argument("--model", type=str, default="gemini-2.5-flash")
+    parser.add_argument("--model", type=str, default="gemini-3.1-pro-preview")
     args = parser.parse_args()
 
     start_time = time.time()
