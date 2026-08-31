@@ -55,12 +55,12 @@ OPENAI_STRICT_SCHEMA = to_strict_json_schema(RiskResponse)
 
 
 async def generate_ai_response_async(
-        query: str,
-        provider: str = "gemini",
-        model: str = "gemini-1.5-pro",
-        cache_name: str | None = None,
-        fallback_prompt: str = "",
-        client: Any | None = None,  # Shared persistent connection pool passed from eval.py
+    query: str,
+    provider: str = "gemini",
+    model: str = "gemini-1.5-pro",
+    cache_name: str | None = None,
+    fallback_prompt: str = "",
+    client: Any | None = None,  # Shared persistent connection pool passed from eval.py
 ) -> dict:
     """Executes target string classification across isolated token-cached frameworks."""
 
@@ -177,10 +177,10 @@ async def generate_ai_response_async(
                     # CORE MATH EQUATION: Subtract cached subset volume from total input mass
                     total_prompt_sum = response.usage_metadata.prompt_token_count or 0
                     cached_tokens = (
-                            getattr(
-                                response.usage_metadata, "cached_content_token_count", 0
-                            )
-                            or 0
+                        getattr(
+                            response.usage_metadata, "cached_content_token_count", 0
+                        )
+                        or 0
                     )
 
                     # Ensure standard billing metrics are only charged for the new query tokens
@@ -203,7 +203,7 @@ async def generate_ai_response_async(
                     }
 
                 # Jittered Exponential Backoff
-                sleep_duration = (initial_delay * (2 ** attempt)) + random.uniform(
+                sleep_duration = (initial_delay * (2**attempt)) + random.uniform(
                     0.1, 1.0
                 )
                 await asyncio.sleep(sleep_duration)

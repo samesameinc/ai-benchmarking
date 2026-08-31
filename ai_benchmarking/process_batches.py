@@ -186,7 +186,9 @@ def load_csv_file(filepath: str) -> tuple[list, int, int]:
                 )
             if not text_val:
                 text_val, text_key = (
-                    (str(row.iloc[0]), cols[0]) if len(row) > 0 and pd.notna(row.iloc[0]) else ("", "user_query")
+                    (str(row.iloc[0]), cols[0])
+                    if len(row) > 0 and pd.notna(row.iloc[0])
+                    else ("", "user_query")
                 )
 
         compressed_text, orig_len, comp_len = compress_history(text_val)
@@ -206,11 +208,11 @@ def load_csv_file(filepath: str) -> tuple[list, int, int]:
 
 
 async def call_provider_api(
-        provider: str,
-        model: str,
-        system_prompt: str,
-        user_prompt: str,
-        cache_name: str | None = None,
+    provider: str,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    cache_name: str | None = None,
 ) -> tuple[list, dict]:
     preds = []
     token_info = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
@@ -268,7 +270,11 @@ async def call_provider_api(
             },
         )
 
-        content = str(response.choices[0].message.content) if response.choices[0].message.content else "{}"
+        content = (
+            str(response.choices[0].message.content)
+            if response.choices[0].message.content
+            else "{}"
+        )
         result_json = json.loads(content)
         preds = result_json.get("predictions", [])
 
@@ -278,11 +284,11 @@ async def call_provider_api(
                 prompt_tokens = usage.prompt_tokens or 0
                 cached_tokens = 0
                 if (
-                        hasattr(usage, "prompt_tokens_details")
-                        and usage.prompt_tokens_details
+                    hasattr(usage, "prompt_tokens_details")
+                    and usage.prompt_tokens_details
                 ):
                     cached_tokens = (
-                            getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                        getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
                     )
                 token_info = {
                     "prompt_tokens": max(0, prompt_tokens - cached_tokens),
@@ -296,11 +302,11 @@ async def call_provider_api(
 
 
 def calculate_job_costs(
-        provider: str,
-        model: str,
-        prompt_tokens: int,
-        completion_tokens: int,
-        cached_tokens: int,
+    provider: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_tokens: int,
 ) -> tuple[float, float, float]:
     p_lower = model.lower()
 
@@ -318,24 +324,24 @@ def calculate_job_costs(
         p_rate, c_rate, cached_read_rate = 0.15, 0.60, 0.075
 
     actual_cost = (
-                          (prompt_tokens * p_rate)
-                          + (completion_tokens * c_rate)
-                          + (cached_tokens * cached_read_rate)
-                  ) / 1e6
+        (prompt_tokens * p_rate)
+        + (completion_tokens * c_rate)
+        + (cached_tokens * cached_read_rate)
+    ) / 1e6
     uncached_cost = (
-                            ((prompt_tokens + cached_tokens) * p_rate) + (completion_tokens * c_rate)
-                    ) / 1e6
+        ((prompt_tokens + cached_tokens) * p_rate) + (completion_tokens * c_rate)
+    ) / 1e6
     return actual_cost, uncached_cost, max(0.0, uncached_cost - actual_cost)
 
 
 async def process_single_chunk(
-        chunk: list,
-        semaphore: asyncio.Semaphore,
-        pbar: Any,
-        provider: str,
-        model: str,
-        system_prompt: str,
-        cache_name: str | None = None,
+    chunk: list,
+    semaphore: asyncio.Semaphore,
+    pbar: Any,
+    provider: str,
+    model: str,
+    system_prompt: str,
+    cache_name: str | None = None,
 ) -> tuple[list, dict]:
     async with semaphore:
         await asyncio.sleep(random.uniform(0.0, 0.2))
@@ -354,8 +360,8 @@ async def process_single_chunk(
 
             except Exception as api_err:
                 if any(
-                        x in str(api_err).lower()
-                        for x in ["503", "429", "unavailable", "rate_limit"]
+                    x in str(api_err).lower()
+                    for x in ["503", "429", "unavailable", "rate_limit"]
                 ):
                     if attempt == max_retries - 1:
                         pbar.update(len(chunk))
@@ -364,7 +370,7 @@ async def process_single_chunk(
                             "completion_tokens": 0,
                             "cached_tokens": 0,
                         }
-                    await asyncio.sleep(1.0 * (1.5 ** attempt))
+                    await asyncio.sleep(1.0 * (1.5**attempt))
                 else:
                     print(f"\nFatal structural error for chunk: {api_err}")
                     pbar.update(len(chunk))
@@ -377,14 +383,14 @@ async def process_single_chunk(
 
 
 async def process_file_async(
-        filepath: str,
-        output_path: str,
-        semaphore: asyncio.Semaphore,
-        pbar: Any,
-        provider: str,
-        model: str,
-        system_prompt: str,
-        cache_name: str | None = None,
+    filepath: str,
+    output_path: str,
+    semaphore: asyncio.Semaphore,
+    pbar: Any,
+    provider: str,
+    model: str,
+    system_prompt: str,
+    cache_name: str | None = None,
 ) -> tuple[int, int, int, int, int, int, int]:
     original_data, orig_len, comp_len = (
         (
@@ -401,7 +407,7 @@ async def process_file_async(
 
     chunk_size = 50
     chunks = [
-        original_data[i: i + chunk_size]
+        original_data[i : i + chunk_size]
         for i in range(0, len(original_data), chunk_size)
     ]
 
@@ -463,11 +469,11 @@ async def process_file_async(
 
 
 async def main_async(
-        data_path: str,
-        provider: str,
-        model: str,
-        output_path: str | None = None,
-        system_prompt: str = BASE_SYSTEM_PROMPT,
+    data_path: str,
+    provider: str,
+    model: str,
+    output_path: str | None = None,
+    system_prompt: str = BASE_SYSTEM_PROMPT,
 ):
     if os.path.isdir(data_path):
         input_files = list(
@@ -503,10 +509,10 @@ async def main_async(
     if provider == "gemini":
         try:
             total_tokens = (
-                    gemini_client.models.count_tokens(
-                        model=model, contents=system_prompt
-                    ).total_tokens
-                    or 0
+                gemini_client.models.count_tokens(
+                    model=model, contents=system_prompt
+                ).total_tokens
+                or 0
             )
             if total_tokens >= 1024:
                 cached_content = gemini_client.caches.create(
@@ -534,7 +540,7 @@ async def main_async(
     }
 
     with tqdm(
-            total=total_global_rows, desc="Total Rows Processed", unit="rows"
+        total=total_global_rows, desc="Total Rows Processed", unit="rows"
     ) as pbar:
         file_tasks = []
         for f in input_files:
