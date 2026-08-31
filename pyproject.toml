@@ -24,7 +24,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.14",
+    "ruff",
+    "mypy",
 ]
 
 [tool.uv]
@@ -36,3 +37,16 @@ line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pandas.*",
+    "tqdm.*",
+    "dotenv.*",
+]
+ignore_missing_imports = true

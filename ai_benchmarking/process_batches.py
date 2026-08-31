@@ -6,21 +6,24 @@ import os
 import random
 import re
 import time
+from typing import Any
 
-import pandas as pd
+import pandas as pd  # type: ignore
 
 # Provider SDKs
 from google.genai import types
 from openai import AsyncOpenAI
 from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, Field
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore
 
 # Robust import handling for direct CLI execution or package module execution
 try:
     from .inference import create_google_genai_client
 except ImportError:
-    from inference import create_google_genai_client
+    from inference import (
+        create_google_genai_client,  # type: ignore[import-not-found, no-redef]
+    )
 
 # Initialize Global Clients once to utilize connection pooling
 gemini_client = create_google_genai_client()
@@ -119,18 +122,21 @@ def load_json_file(filepath: str) -> tuple[list, int, int]:
             id_key = "user_id"
         else:
             for k in ["user_id", "prompt_id", "id", "uid"]:
-                if k in item:
+                if k in item and item[k] is not None:
                     id_val, id_key = str(item[k]), k
                     break
         if id_val is None:
             id_val, id_key = f"index_{idx}", "id"
 
-        text_val, text_key = None, "history"
+        text_val: str = ""
+        text_key = "history"
         for k in ["history", "user_query", "text", "query"]:
-            if k in item:
-                text_val, text_key = str(item[k]), k
+            if k in item and item[k] is not None:
+                text_val = str(item[k])
+                text_key = k
                 break
-        if text_val is None:
+
+        if not text_val:
             text_val, text_key = json.dumps(item), "history"
 
         compressed_text, orig_len, comp_len = compress_history(text_val)
@@ -155,28 +161,32 @@ def load_csv_file(filepath: str) -> tuple[list, int, int]:
     processed, total_orig_len, total_comp_len = [], 0, 0
 
     for idx, row in df.iterrows():
-        id_val, id_key, text_val, text_key = None, "id", None, "user_query"
+        id_val, id_key = None, "id"
+        text_val: str = ""
+        text_key = "user_query"
+
         if "user_id" in cols and "prompt_id" in cols:
             id_val, id_key = f"{row['user_id']}_{row['prompt_id']}", "user_id"
         elif "1" in cols and "0" in cols:
             id_val, id_key = str(row["1"]), "1"
-            text_val, text_key = str(row["0"]), "0"
+            text_val, text_key = str(row["0"]) if pd.notna(row["0"]) else "", "0"
         else:
             for k in ["id", "user_id", "prompt_id", "uid", "1"]:
-                if k in cols:
+                if k in cols and pd.notna(row[k]):
                     id_val, id_key = str(row[k]), k
                     break
             for k in ["user_query", "history", "text", "query", "0"]:
-                if k in cols:
+                if k in cols and pd.notna(row[k]):
                     text_val, text_key = str(row[k]), k
                     break
+
             if id_val is None:
                 id_val, id_key = (
                     (str(row.iloc[1]), cols[1]) if len(row) > 1 else (str(idx), "id")
                 )
-            if text_val is None:
+            if not text_val:
                 text_val, text_key = (
-                    (str(row.iloc[0]), cols[0]) if len(row) > 0 else ("", "user_query")
+                    (str(row.iloc[0]), cols[0]) if len(row) > 0 and pd.notna(row.iloc[0]) else ("", "user_query")
                 )
 
         compressed_text, orig_len, comp_len = compress_history(text_val)
@@ -196,11 +206,11 @@ def load_csv_file(filepath: str) -> tuple[list, int, int]:
 
 
 async def call_provider_api(
-    provider: str,
-    model: str,
-    system_prompt: str,
-    user_prompt: str,
-    cache_name: str = None,
+        provider: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        cache_name: str | None = None,
 ) -> tuple[list, dict]:
     preds = []
     token_info = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
@@ -221,7 +231,9 @@ async def call_provider_api(
             contents=user_prompt,
             config=config_payload,
         )
-        result_json = json.loads(response.text)
+
+        content = str(response.text) if response.text else "{}"
+        result_json = json.loads(content)
         preds = result_json.get("predictions", [])
 
         try:
@@ -255,7 +267,9 @@ async def call_provider_api(
                 },
             },
         )
-        result_json = json.loads(response.choices[0].message.content)
+
+        content = str(response.choices[0].message.content) if response.choices[0].message.content else "{}"
+        result_json = json.loads(content)
         preds = result_json.get("predictions", [])
 
         try:
@@ -264,11 +278,11 @@ async def call_provider_api(
                 prompt_tokens = usage.prompt_tokens or 0
                 cached_tokens = 0
                 if (
-                    hasattr(usage, "prompt_tokens_details")
-                    and usage.prompt_tokens_details
+                        hasattr(usage, "prompt_tokens_details")
+                        and usage.prompt_tokens_details
                 ):
                     cached_tokens = (
-                        getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
+                            getattr(usage.prompt_tokens_details, "cached_tokens", 0) or 0
                     )
                 token_info = {
                     "prompt_tokens": max(0, prompt_tokens - cached_tokens),
@@ -282,11 +296,11 @@ async def call_provider_api(
 
 
 def calculate_job_costs(
-    provider: str,
-    model: str,
-    prompt_tokens: int,
-    completion_tokens: int,
-    cached_tokens: int,
+        provider: str,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cached_tokens: int,
 ) -> tuple[float, float, float]:
     p_lower = model.lower()
 
@@ -304,24 +318,24 @@ def calculate_job_costs(
         p_rate, c_rate, cached_read_rate = 0.15, 0.60, 0.075
 
     actual_cost = (
-        (prompt_tokens * p_rate)
-        + (completion_tokens * c_rate)
-        + (cached_tokens * cached_read_rate)
-    ) / 1e6
+                          (prompt_tokens * p_rate)
+                          + (completion_tokens * c_rate)
+                          + (cached_tokens * cached_read_rate)
+                  ) / 1e6
     uncached_cost = (
-        ((prompt_tokens + cached_tokens) * p_rate) + (completion_tokens * c_rate)
-    ) / 1e6
+                            ((prompt_tokens + cached_tokens) * p_rate) + (completion_tokens * c_rate)
+                    ) / 1e6
     return actual_cost, uncached_cost, max(0.0, uncached_cost - actual_cost)
 
 
 async def process_single_chunk(
-    chunk: list,
-    semaphore: asyncio.Semaphore,
-    pbar: tqdm,
-    provider: str,
-    model: str,
-    system_prompt: str,
-    cache_name: str = None,
+        chunk: list,
+        semaphore: asyncio.Semaphore,
+        pbar: Any,
+        provider: str,
+        model: str,
+        system_prompt: str,
+        cache_name: str | None = None,
 ) -> tuple[list, dict]:
     async with semaphore:
         await asyncio.sleep(random.uniform(0.0, 0.2))
@@ -340,8 +354,8 @@ async def process_single_chunk(
 
             except Exception as api_err:
                 if any(
-                    x in str(api_err).lower()
-                    for x in ["503", "429", "unavailable", "rate_limit"]
+                        x in str(api_err).lower()
+                        for x in ["503", "429", "unavailable", "rate_limit"]
                 ):
                     if attempt == max_retries - 1:
                         pbar.update(len(chunk))
@@ -350,7 +364,7 @@ async def process_single_chunk(
                             "completion_tokens": 0,
                             "cached_tokens": 0,
                         }
-                    await asyncio.sleep(1.0 * (1.5**attempt))
+                    await asyncio.sleep(1.0 * (1.5 ** attempt))
                 else:
                     print(f"\nFatal structural error for chunk: {api_err}")
                     pbar.update(len(chunk))
@@ -363,14 +377,14 @@ async def process_single_chunk(
 
 
 async def process_file_async(
-    filepath: str,
-    output_path: str,
-    semaphore: asyncio.Semaphore,
-    pbar: tqdm,
-    provider: str,
-    model: str,
-    system_prompt: str,
-    cache_name: str = None,
+        filepath: str,
+        output_path: str,
+        semaphore: asyncio.Semaphore,
+        pbar: Any,
+        provider: str,
+        model: str,
+        system_prompt: str,
+        cache_name: str | None = None,
 ) -> tuple[int, int, int, int, int, int, int]:
     original_data, orig_len, comp_len = (
         (
@@ -387,7 +401,7 @@ async def process_file_async(
 
     chunk_size = 50
     chunks = [
-        original_data[i : i + chunk_size]
+        original_data[i: i + chunk_size]
         for i in range(0, len(original_data), chunk_size)
     ]
 
@@ -449,11 +463,11 @@ async def process_file_async(
 
 
 async def main_async(
-    data_path: str,
-    provider: str,
-    model: str,
-    output_path: str = None,
-    system_prompt: str = BASE_SYSTEM_PROMPT,
+        data_path: str,
+        provider: str,
+        model: str,
+        output_path: str | None = None,
+        system_prompt: str = BASE_SYSTEM_PROMPT,
 ):
     if os.path.isdir(data_path):
         input_files = list(
@@ -484,15 +498,15 @@ async def main_async(
     )
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-    cache_name = None
+    cache_name: str | None = None
 
     if provider == "gemini":
         try:
             total_tokens = (
-                gemini_client.models.count_tokens(
-                    model=model, contents=system_prompt
-                ).total_tokens
-                or 0
+                    gemini_client.models.count_tokens(
+                        model=model, contents=system_prompt
+                    ).total_tokens
+                    or 0
             )
             if total_tokens >= 1024:
                 cached_content = gemini_client.caches.create(
@@ -501,7 +515,7 @@ async def main_async(
                         contents=[system_prompt], ttl="1800s"
                     ),
                 )
-                cache_name = cached_content.name
+                cache_name = str(cached_content.name)
                 print(f"Context cached successfully! Identifier: {cache_name}")
         except Exception as e:
             print(
@@ -520,7 +534,7 @@ async def main_async(
     }
 
     with tqdm(
-        total=total_global_rows, desc="Total Rows Processed", unit="rows"
+            total=total_global_rows, desc="Total Rows Processed", unit="rows"
     ) as pbar:
         file_tasks = []
         for f in input_files:

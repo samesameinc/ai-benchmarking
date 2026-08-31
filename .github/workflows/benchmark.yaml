@@ -6,9 +6,19 @@ on:
   pull_request:
     branches: [ main ]
 
+# Cancel in-progress runs when a new commit is pushed to the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+
+    # Run tests on 3 different Python versions
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
       - name: Checkout repository
@@ -19,19 +29,25 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12.13"
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: |
-          uv sync
+          uv venv
+          uv pip install -r requirements.txt
+          uv pip install ruff pytest mypy
 
-      - name: Run Linting & Syntax Checks
+      - name: Run Ruff (Lint & Format)
         run: |
           uv run ruff check .
           uv run ruff format --check .
+
+      - name: Run Mypy (Type Checking)
+        run: |
+          uv run mypy . --ignore-missing-imports
 
       - name: Run Benchmark Test
         env:

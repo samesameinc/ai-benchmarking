@@ -3,6 +3,7 @@ import json
 import os
 import random
 import time
+from typing import Any
 
 from google import genai
 from google.genai import types
@@ -11,7 +12,7 @@ from openai.lib._pydantic import to_strict_json_schema
 from pydantic import BaseModel, Field
 
 
-def create_google_genai_client():
+def create_google_genai_client() -> Any:
     """Create a google-genai Client using an API key or Application Default Credentials.
 
     If GEMINI_API_KEY or GOOGLE_API_KEY is set, use the Gemini Developer API.
@@ -23,7 +24,7 @@ def create_google_genai_client():
         return genai.Client(api_key=api_key)
 
     # Try using the more modern Application Default Credentials (ADC) for auth
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     project = os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("GOOGLE_CLOUD_LOCATION")
     if project and location:
@@ -54,12 +55,12 @@ OPENAI_STRICT_SCHEMA = to_strict_json_schema(RiskResponse)
 
 
 async def generate_ai_response_async(
-    query: str,
-    provider: str = "gemini",
-    model: str = "gemini-1.5-pro",
-    cache_name: str = None,
-    fallback_prompt: str = "",
-    client=None,  # Shared persistent connection pool passed from eval.py
+        query: str,
+        provider: str = "gemini",
+        model: str = "gemini-1.5-pro",
+        cache_name: str | None = None,
+        fallback_prompt: str = "",
+        client: Any | None = None,  # Shared persistent connection pool passed from eval.py
 ) -> dict:
     """Executes target string classification across isolated token-cached frameworks."""
 
@@ -103,9 +104,15 @@ async def generate_ai_response_async(
         # Record only the time taken for the API request
         api_latency = time.time() - start_time
 
-        raw_content = response.choices[0].message.content
-        p_tokens = response.usage.prompt_tokens
-        c_tokens = response.usage.completion_tokens
+        # FIX: Safely handle potential None values returned by OpenAI and cast to string
+        raw_content = (
+            str(response.choices[0].message.content)
+            if response.choices[0].message.content
+            else ""
+        )
+        if response.usage is not None:
+            p_tokens = response.usage.prompt_tokens
+            c_tokens = response.usage.completion_tokens
 
     # -----------------------------------------------------------------------
     # PROVIDER METRICS LAYER: GEMINI (EXPLICIT CONTEXT CACHING ACTIVE)
@@ -123,16 +130,20 @@ async def generate_ai_response_async(
         # Define safety settings to prevent standard filters from blocking clinical triage strings
         safety_settings = [
             types.SafetySetting(
-                category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"
+                category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
             ),
             types.SafetySetting(
-                category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"
+                category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
             ),
             types.SafetySetting(
-                category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"
+                category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
             ),
             types.SafetySetting(
-                category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"
+                category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                threshold=types.HarmBlockThreshold.BLOCK_NONE,
             ),
         ]
 
@@ -159,18 +170,23 @@ async def generate_ai_response_async(
                 # Record only the time taken for the successful API request
                 api_latency = time.time() - start_time
 
-                raw_content = response.text
+                # FIX: Safely cast to string
+                raw_content = str(response.text) if response.text else ""
 
-                # CORE MATH EQUATION: Subtract cached subset volume from total input mass
-                total_prompt_sum = response.usage_metadata.prompt_token_count or 0
-                cached_tokens = (
-                    getattr(response.usage_metadata, "cached_content_token_count", 0)
-                    or 0
-                )
+                if response.usage_metadata:
+                    # CORE MATH EQUATION: Subtract cached subset volume from total input mass
+                    total_prompt_sum = response.usage_metadata.prompt_token_count or 0
+                    cached_tokens = (
+                            getattr(
+                                response.usage_metadata, "cached_content_token_count", 0
+                            )
+                            or 0
+                    )
 
-                # Ensure standard billing metrics are only charged for the new query tokens
-                p_tokens = total_prompt_sum - cached_tokens
-                c_tokens = response.usage_metadata.candidates_token_count or 0
+                    # Ensure standard billing metrics are only charged for the new query tokens
+                    p_tokens = total_prompt_sum - cached_tokens
+                    c_tokens = response.usage_metadata.candidates_token_count or 0
+
                 break
 
             except Exception as api_err:
@@ -187,7 +203,7 @@ async def generate_ai_response_async(
                     }
 
                 # Jittered Exponential Backoff
-                sleep_duration = (initial_delay * (2**attempt)) + random.uniform(
+                sleep_duration = (initial_delay * (2 ** attempt)) + random.uniform(
                     0.1, 1.0
                 )
                 await asyncio.sleep(sleep_duration)
@@ -196,7 +212,8 @@ async def generate_ai_response_async(
     # PRODUCTION COMPILATION & DATA SAFETY RAIL
     # -----------------------------------------------------------------------
     try:
-        parsed_json = json.loads(raw_content)
+        # FIX: Prevent parsing failures on empty strings
+        parsed_json = json.loads(raw_content) if raw_content else {}
 
         # Captures array output formats and safely extracts the first item dictionary
         if isinstance(parsed_json, list):
