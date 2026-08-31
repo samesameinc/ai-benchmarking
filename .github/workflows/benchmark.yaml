@@ -1,14 +1,52 @@
-name: AI Benchmark CI
-on: [push]
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# Cancel in-progress runs when a new commit is pushed to the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  lint-and-test:
     runs-on: ubuntu-latest
+
+    # Run tests on 3 different Python versions
+    strategy:
+      matrix:
+        python-version: ["3.12"]
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
       - name: Install dependencies
-        run: uv sync
+        run: |
+          uv sync
+
+      - name: Run Ruff (Lint & Format)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Run Mypy (Type Checking)
+        run: |
+          uv run mypy .
+
       - name: Run Benchmark Test
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
