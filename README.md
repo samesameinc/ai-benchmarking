@@ -198,6 +198,34 @@ Your input JSON file should consist of a list of objects. While the script can h
 ]
 ```
 
+---
+
+## 6. Batch Processing (`process_batches.py`)
+
+The `process_batches.py` script serves as a high-throughput async processing engine designed to evaluate datasets in batches (e.g., generating baseline **1st-Line Judge** predictions across production logs or unannotated benchmark files).
+
+### How It Works
+
+1. **Automatic Ingestion:** Scans the target folder for all `.json` and `.csv` files, automatically parsing multi-turn conversations or single-turn text queries.
+2. **Context Compression:** Strips redundant model filler from transcripts to minimize token footprint before calling provider APIs.
+3. **Structured Export:** Generates standardized prediction files saved to `./predicted_json_results/` retaining your dataset's original ID and text keys alongside a `predicted_risk_score`.
+
+---
+
+### Command Line Usage
+
+#### Run Default Batch Inference (Gemini)
+```bash
+python process_batches.py --provider gemini --model gemini-3.5-flash
+```
+
+### CLI Arguments
+| Flag | Type | Default | Description |
+|---|---|---|---|
+| --provider | str | gemini | "Model provider. Choices: gemini, openai." |
+| --model | str | gemini-3.5-flash | Model name identifier to execute.|
+| --prompt | str | None | "(Optional) Path to a .txt file containing custom system instructions. If omitted, the default C-SSRS benchmark prompt is used."|
+
 ## ⚖️ License
 
 This project is licensed under the **GNU GPL v3**. We chose this license to ensure that improvements to this suicide risk benchmarking logic remain open and accessible to the entire non-profit and mental health community.
